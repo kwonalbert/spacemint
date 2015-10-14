@@ -1,0 +1,2 @@
+# spacecoin
+Prototype of spacecoin

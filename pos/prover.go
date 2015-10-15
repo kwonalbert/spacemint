@@ -5,12 +5,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"golang.org/x/crypto/sha3"
-	"hash"
 	"io/ioutil"
 	"os"
 )
 
 const hashName = "hash"
+const hashSize = 256/8
 
 type Prover struct {
 	pk              []byte
@@ -18,7 +18,6 @@ type Prover struct {
 	graph           string // directory containing the vertices
 
 	commitment      []byte // root hash of the merkle tree
-	hash            hash.Hash
 }
 
 func NewProver(pk []byte, size int, graph string) *Prover{
@@ -26,24 +25,23 @@ func NewProver(pk []byte, size int, graph string) *Prover{
 		pk:     pk,
 		size:   size,
 		graph:  graph,
-
-		hash:   sha3.New256(),
 	}
 	return &p
 }
 
 func (p *Prover) computeHash(node string) []byte {
-	hf := fmt.Sprintf("%s/%s/%s", p.graph, node, hashName)
+	nodeDir := fmt.Sprintf("%s/%s", p.graph, node)
+	hf := fmt.Sprintf("%s/%s", nodeDir, hashName)
 	f, err := os.Open(hf)
 	if err == nil { // hash has been computed before
-		hash := make([]byte, p.hash.Size())
+		hash := make([]byte, hashSize)
 		n, err := f.Read(hash)
-		if err != nil || n != p.hash.Size() {
+		if err != nil || n != hashSize {
 			panic(err)
 		}
 		return hash
 	} else {
-		parents, err := ioutil.ReadDir(p.graph)
+		parents, err := ioutil.ReadDir(nodeDir)
 		if err != nil {
 			panic(err)
 		}
@@ -52,10 +50,10 @@ func (p *Prover) computeHash(node string) []byte {
 		binary.Write(buf, binary.BigEndian, node)
 		//probably should be val = append(buf.bytes(), p.pk ...)
 		val := buf.Bytes()
-		var hash []byte
+		var hash [hashSize]byte
 
 		if len(parents) == 0 { // source node
-			hash = p.hash.Sum(val)
+			hash = sha3.Sum256(val)
 		} else {
 			var ph []byte // parent hashes
 			for _, file := range parents {
@@ -65,18 +63,18 @@ func (p *Prover) computeHash(node string) []byte {
 				ph = append(ph, p.computeHash(file.Name()) ...)
 			}
 			hashes := append(val, ph ...)
-			hash = p.hash.Sum(hashes)
+			hash = sha3.Sum256(hashes)
 		}
 
 		f, err = os.Create(hf)
 		if err != nil {
 			panic(err)
 		}
-		n, err := f.Write(hash)
-		if err != nil || n != p.hash.Size() {
+		n, err := f.Write(hash[:])
+		if err != nil || n != hashSize {
 			panic(err)
 		}
-		return hash
+		return hash[:]
 	}
 }
 
@@ -91,6 +89,8 @@ func (p *Prover) InitGraph() {
 		node := file.Name()
 		p.computeHash(node)
 	}
+
+	p.Commit()
 }
 
 
@@ -104,9 +104,9 @@ func (p *Prover) generateMerkle(node int) []byte {
 		if err != nil {
 			panic(err)
 		}
-		hash := make([]byte, p.hash.Size())
-		n, err := f.Read(hash[:])
-		if err != nil || n != p.hash.Size() {
+		hash := make([]byte, hashSize)
+		n, err := f.Read(hash)
+		if err != nil || n != hashSize {
 			panic(err)
 		}
 		return hash
@@ -114,17 +114,17 @@ func (p *Prover) generateMerkle(node int) []byte {
 		hash1 := p.generateMerkle(node*2)
 		hash2 := p.generateMerkle(node*2 + 1)
 		val := append(hash1[:], hash2[:] ...)
-		hash := p.hash.Sum(val)
+		hash := sha3.Sum256(val)
 		f, err := os.Create(fmt.Sprintf("%s/%s/%d", p.graph, "merkle", node))
 		if err != nil {
 			panic(err)
 		}
-		n, err := f.Write(hash)
-		if err != nil || n != p.hash.Size() {
+		n, err := f.Write(hash[:])
+		if err != nil || n != hashSize {
 			panic(err)
 		}
 		f.Close()
-		return hash
+		return hash[:]
 	}
 }
 

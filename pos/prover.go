@@ -182,3 +182,14 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 	}
 	return hash, proof
 }
+
+// Receives challenges from the verifier to prove PoS
+// return: the hash values of the challenges, and the proof for each
+func (p *Prover) ProveSpace(challenges []int) ([][]byte, [][][]byte) {
+	hashes := make([][]byte, len(challenges))
+	proofs := make([][][]byte, len(challenges))
+	for i := range challenges {
+		hashes[i], proofs[i] = p.Open(challenges[i])
+	}
+	return hashes, proofs
+}

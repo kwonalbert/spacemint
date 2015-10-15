@@ -10,15 +10,20 @@ import (
 var prover *Prover = nil
 var verifier *Verifier = nil
 var size int = 4
+var beta int = 2
 var graphDir string = "graph"
 
 //exp* gets setup in test.go
 
 func TestPoS(t *testing.T) {
-
+	challenges := verifier.SelectChallenges()
+	hashes, proofs := prover.ProveSpace(challenges)
+	if !verifier.VerifySpace(challenges, hashes, proofs) {
+		log.Fatal("Verify space failed:", challenges)
+	}
 }
 
-func TestOpen(t *testing.T) {
+func TestOpenVerify(t *testing.T) {
 	hash, proof := prover.Open(1)
 	for i := range expProof {
 		for j := range expProof[i] {
@@ -83,6 +88,6 @@ func TestMerkleTree(t *testing.T) {
 func TestMain(m *testing.M) {
 	prover = setup(size, graphDir)
 	root := prover.InitGraph()
-	verifier = NewVerifier(size, root)
+	verifier = NewVerifier(size, beta, root)
 	os.Exit(m.Run())
 }

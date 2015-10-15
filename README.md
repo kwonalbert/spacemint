@@ -1,4 +1,4 @@
-# Spacecoin
+## Spacecoin
 
 This is a prototype of Spacecoin, which is described in more detail at
 https://eprint.iacr.org/2015/528.pdf (Cryptocurrency)

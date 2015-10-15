@@ -9,18 +9,15 @@ import (
 	"os"
 )
 
-const hashName = "hash"
-const hashSize = 256/8
-
 type Prover struct {
 	pk              []byte
 	size            int    // # of vertices in the grpah
 	graph           string // directory containing the vertices
 
-	commitment      []byte // root hash of the merkle tree
+	commit          []byte // root hash of the merkle tree
 }
 
-func NewProver(pk []byte, size int, graph string) *Prover{
+func NewProver(pk []byte, size int, graph string) *Prover {
 	p := Prover{
 		pk:     pk,
 		size:   size,
@@ -79,7 +76,7 @@ func (p *Prover) computeHash(node string) []byte {
 }
 
 // Computes all the hashes of the vertices
-func (p *Prover) InitGraph() {
+func (p *Prover) InitGraph() []byte {
 	nodes, err := ioutil.ReadDir(p.graph)
 	if err != nil {
 		panic(err)
@@ -90,7 +87,7 @@ func (p *Prover) InitGraph() {
 		p.computeHash(node)
 	}
 
-	p.Commit()
+	return p.Commit()
 }
 
 
@@ -141,7 +138,47 @@ func (p *Prover) Commit() []byte {
 	// build the merkle tree in depth first fashion
 	// root node is 1
 	root := p.generateMerkle(1)
-	p.commitment = root
+	p.commit = root
 
 	return root
+}
+
+// return: hash of node, and the lgN hashes to verify node
+func (p *Prover) Open(node int) ([]byte, [][]byte) {
+	hash := make([]byte, hashSize)
+	f, err := os.Open(fmt.Sprintf("%s/%d/hash", p.graph, node))
+	if err != nil {
+		panic(err)
+	}
+	n, err := f.Read(hash)
+	if err != nil || n != hashSize {
+		panic(err)
+	}
+
+	proof := make([][]byte, log2(p.size)-1)
+	count := 0
+	for i := node+p.size; i > 1; i /= 2 { // root hash not needed, so >1
+		proof[count] = make([]byte, hashSize)
+		var sib int
+
+		if i % 2 == 0 { // need to send only the sibling
+			sib = i + 1
+		} else {
+			sib = i - 1
+		}
+		if sib >= p.size {
+			f, err = os.Open(fmt.Sprintf("%s/%d/hash", p.graph, sib-p.size))
+		} else {
+			f, err = os.Open(fmt.Sprintf("%s/%s/%d", p.graph, "merkle", sib))
+		}
+		if err != nil {
+			panic(err)
+		}
+		n, err := f.Read(proof[count])
+		if err != nil || n != hashSize {
+			panic(err)
+		}
+		count++
+	}
+	return hash, proof
 }

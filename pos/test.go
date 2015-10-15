@@ -9,6 +9,10 @@ import (
 	"os"
 )
 
+var expHashes [][hashSize]byte = nil
+var expMerkle [][hashSize]byte = nil
+var expProof [][hashSize]byte = nil
+
 func sampleGraph() [][]int{
 	adj := [][]int{[]int{0, 0, 0, 0,},
 		       []int{1, 0, 0, 0,},
@@ -47,6 +51,11 @@ func sampleGraph() [][]int{
 
 	val1 := append(expMerkle[2][:], expMerkle[3][:] ...)
 	expMerkle[1] = sha3.Sum256(val1)
+
+	//testing for node 1
+	expProof = make([][hashSize]byte, log2(4)-1)
+	expProof[0] = expMerkle[4]
+	expProof[1] = expMerkle[3]
 
 	return adj
 }

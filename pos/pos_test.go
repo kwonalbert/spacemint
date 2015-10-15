@@ -8,14 +8,29 @@ import (
 )
 
 var prover *Prover = nil
+var verifier *Verifier = nil
 var size int = 4
 var graphDir string = "graph"
 
-var expHashes [][hashSize]byte = nil
-var expMerkle [][hashSize]byte = nil
+//exp* gets setup in test.go
 
 func TestPoS(t *testing.T) {
 
+}
+
+func TestOpen(t *testing.T) {
+	hash, proof := prover.Open(1)
+	for i := range expProof {
+		for j := range expProof[i] {
+			if expProof[i][j] != proof[i][j] {
+				log.Fatal("Open failed:", expProof[i][j], proof[i][j])
+			}
+		}
+	}
+
+	if !verifier.Verify(1,hash, proof) {
+		log.Fatal("Verify failed:", hash, proof)
+	}
 }
 
 //Sanity check using simple graph
@@ -31,7 +46,7 @@ func TestComputeHash(t *testing.T) {
 		f.Read(hashes[i])
 	}
 
-	var result   [hashSize]byte
+	var result [hashSize]byte
 
 	for i := range expHashes {
 		copy(result[:], hashes[i])
@@ -67,6 +82,7 @@ func TestMerkleTree(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	prover = setup(size, graphDir)
-	prover.InitGraph()
+	root := prover.InitGraph()
+	verifier = NewVerifier(size, root)
 	os.Exit(m.Run())
 }

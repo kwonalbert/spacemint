@@ -1,4 +1,4 @@
-## Spacecoin
+# Spacecoin
 
 This is a prototype of Spacecoin, which is described in more detail at
 https://eprint.iacr.org/2015/528.pdf (Cryptocurrency)
@@ -6,7 +6,7 @@ and
 https://eprint.iacr.org/2013/796.pdf (Proof-of-space; PoS).
 This README explains some implementation details.
 
-#Structure of the graph
+##Structure of the graph
 
 For proof-of-space, the graphs are generated once, and are read only
 for rest of its life-time. Moreover, the only operations we need to do

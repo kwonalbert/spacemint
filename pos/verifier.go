@@ -7,13 +7,15 @@ import (
 )
 
 type Verifier struct {
+	pk              []byte // public key to verify the proof
 	size            int    // size of the graph
 	beta            int    // number of challenges needed
 	root            []byte // root hash
 }
 
-func NewVerifier(size int, beta int, root []byte) *Verifier {
+func NewVerifier(pk []byte, size int, beta int, root []byte) *Verifier {
 	v := Verifier{
+		pk:     pk,
 		root:   root,
 		beta:   beta,
 		size:   size,
@@ -54,6 +56,7 @@ func (v *Verifier) Verify(node int, hash []byte, proof [][]byte) bool {
 		} else {
 			val = append(proof[counter], curHash ...)
 		}
+		val = append(v.pk, val ...)
 		hash := sha3.Sum256(val)
 		curHash = hash[:]
 		counter++

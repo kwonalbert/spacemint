@@ -45,8 +45,7 @@ func (p *Prover) computeHash(node string) []byte {
 
 		buf := new(bytes.Buffer)
 		binary.Write(buf, binary.BigEndian, node)
-		//probably should be val = append(buf.bytes(), p.pk ...)
-		val := buf.Bytes()
+		val := append(p.pk, buf.Bytes() ...)
 		var hash [hashSize]byte
 
 		if len(parents) == 0 { // source node
@@ -111,6 +110,7 @@ func (p *Prover) generateMerkle(node int) []byte {
 		hash1 := p.generateMerkle(node*2)
 		hash2 := p.generateMerkle(node*2 + 1)
 		val := append(hash1[:], hash2[:] ...)
+		val = append(p.pk, val ...)
 		hash := sha3.Sum256(val)
 		f, err := os.Create(fmt.Sprintf("%s/%s/%d", p.graph, "merkle", node))
 		if err != nil {

@@ -13,7 +13,7 @@ var expHashes [][hashSize]byte = nil
 var expMerkle [][hashSize]byte = nil
 var expProof [][hashSize]byte = nil
 
-func sampleGraph() [][]int{
+func sampleGraph(pk []byte) [][]int{
 	adj := [][]int{[]int{0, 0, 0, 0,},
 		       []int{1, 0, 0, 0,},
 		       []int{1, 0, 0, 0,},
@@ -21,14 +21,16 @@ func sampleGraph() [][]int{
 
 	buf := new(bytes.Buffer)
 	binary.Write(buf, binary.BigEndian, 3)
-	expHashes[3] = sha3.Sum256(buf.Bytes())
+	val := append(pk, buf.Bytes() ...)
+	expHashes[3] = sha3.Sum256(val)
 
 	binary.Write(buf, binary.BigEndian, 1)
-	expHashes[1] = sha3.Sum256(buf.Bytes())
+	val = append(pk, buf.Bytes() ...)
+	expHashes[1] = sha3.Sum256(val)
 
 	binary.Write(buf, binary.BigEndian, 2)
-	val := buf.Bytes()
-	val = append(val, expHashes[3][:]...)
+	val = append(buf.Bytes(), expHashes[3][:] ...)
+	val = append(pk, val ...)
 	expHashes[2] = sha3.Sum256(val)
 
 	binary.Write(buf, binary.BigEndian, 0)
@@ -36,6 +38,7 @@ func sampleGraph() [][]int{
 	val = append(val, expHashes[1][:] ...)
 	val = append(val, expHashes[2][:] ...)
 	val = append(val, expHashes[3][:] ...)
+	val = append(pk, val ...)
 	expHashes[0] = sha3.Sum256(val)
 
 
@@ -44,12 +47,15 @@ func sampleGraph() [][]int{
 	}
 
 	val3 := append(expMerkle[6][:], expMerkle[7][:] ...)
+	val3 = append(pk, val3 ...)
 	expMerkle[3] = sha3.Sum256(val3)
 
 	val2 := append(expMerkle[4][:], expMerkle[5][:] ...)
+	val2 = append(pk, val2 ...)
 	expMerkle[2] = sha3.Sum256(val2)
 
 	val1 := append(expMerkle[2][:], expMerkle[3][:] ...)
+	val1 = append(pk, val1 ...)
 	expMerkle[1] = sha3.Sum256(val1)
 
 	//testing for node 1
@@ -112,10 +118,9 @@ func setupGraph(adj [][]int, graph string) {
 	}
 }
 
-func setup(n int, graph string) *Prover{
+func setup(pk []byte, n int, graph string) {
 	expHashes = make([][hashSize]byte, n)
 	expMerkle = make([][hashSize]byte, 2*n)
-	adj := sampleGraph()
+	adj := sampleGraph(pk)
 	setupGraph(adj, graph)
-	return NewProver(nil, n, graph)
 }

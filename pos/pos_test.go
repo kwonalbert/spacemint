@@ -9,6 +9,7 @@ import (
 
 var prover *Prover = nil
 var verifier *Verifier = nil
+var pk []byte
 var size int = 4
 var beta int = 2
 var graphDir string = "graph"
@@ -28,7 +29,7 @@ func TestOpenVerify(t *testing.T) {
 	for i := range expProof {
 		for j := range expProof[i] {
 			if expProof[i][j] != proof[i][j] {
-				log.Fatal("Open failed:", expProof[i][j], proof[i][j])
+				log.Fatal("Open failed:", expProof[i], proof[i])
 			}
 		}
 	}
@@ -86,8 +87,11 @@ func TestMerkleTree(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	prover = setup(size, graphDir)
+	pk = []byte{1}
+	prover = NewProver(pk, size, graphDir)
+	setup(pk, size, graphDir)
 	root := prover.InitGraph()
-	verifier = NewVerifier(size, beta, root)
+
+	verifier = NewVerifier(pk, size, beta, root)
 	os.Exit(m.Run())
 }

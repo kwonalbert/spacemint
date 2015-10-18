@@ -1,9 +1,9 @@
 package pos
 
 import (
-	"crypto/rand"
+	"bytes"
+	"encoding/binary"
 	"golang.org/x/crypto/sha3"
-	"math/big"
 )
 
 type Verifier struct {
@@ -24,15 +24,18 @@ func NewVerifier(pk []byte, size int, beta int, root []byte) *Verifier {
 }
 
 //TODO: need to select based on some pseudorandomness/gamma function?
-func (v *Verifier) SelectChallenges() []int {
+//      Note that these challenges are different from those of cryptocurrency
+func (v *Verifier) SelectChallenges(seed []byte) []int {
 	challenges := make([]int, v.beta)
-	size := big.NewInt(int64(v.size))
+	rands := make([]byte, v.beta*8)
+	sha3.ShakeSum256(rands, seed) //PRNG
 	for i := range challenges {
-		r, err := rand.Int(rand.Reader, size)
+		buf := bytes.NewBuffer(rands[i*8:(i+1)*8-1])
+		val, err := binary.ReadUvarint(buf)
 		if err != nil {
 			panic(err)
 		}
-		challenges[i] = int(r.Int64())
+		challenges[i] = int(val) % v.size
 	}
 	return challenges
 }

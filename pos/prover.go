@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
 	"io/ioutil"
 	"os"
@@ -15,6 +16,11 @@ type Prover struct {
 	graph           string // directory containing the vertices
 
 	commit          []byte // root hash of the merkle tree
+}
+
+type Commitment struct {
+	Pk              []byte
+	Commit          []byte
 }
 
 func NewProver(pk []byte, size int, graph string) *Prover {
@@ -36,6 +42,7 @@ func (p *Prover) computeHash(node string) []byte {
 		if err != nil || n != hashSize {
 			panic(err)
 		}
+		f.Close()
 		return hash
 	} else {
 		parents, err := ioutil.ReadDir(nodeDir)
@@ -70,12 +77,13 @@ func (p *Prover) computeHash(node string) []byte {
 		if err != nil || n != hashSize {
 			panic(err)
 		}
+		f.Close()
 		return hash[:]
 	}
 }
 
 // Computes all the hashes of the vertices
-func (p *Prover) InitGraph() []byte {
+func (p *Prover) InitGraph() *Commitment {
 	nodes, err := ioutil.ReadDir(p.graph)
 	if err != nil {
 		panic(err)
@@ -88,7 +96,6 @@ func (p *Prover) InitGraph() []byte {
 
 	return p.Commit()
 }
-
 
 // Recursive function to generate merkle tree
 // Should have at most O(lgn) hashes in memory at a time
@@ -105,6 +112,7 @@ func (p *Prover) generateMerkle(node int) []byte {
 		if err != nil || n != hashSize {
 			panic(err)
 		}
+		f.Close()
 		return hash
 	} else {
 		hash1 := p.generateMerkle(node*2)
@@ -128,7 +136,7 @@ func (p *Prover) generateMerkle(node int) []byte {
 // Generate a merkle tree of the hashes of the vertices
 // return: root hash of the merkle tree
 //         will also write out the merkle tree
-func (p *Prover) Commit() []byte {
+func (p *Prover) Commit() *Commitment {
 	folder := fmt.Sprintf("%s/%s", p.graph, "merkle")
 	err := os.Mkdir(folder, 0777)
 	if err != nil {
@@ -140,7 +148,12 @@ func (p *Prover) Commit() []byte {
 	root := p.generateMerkle(1)
 	p.commit = root
 
-	return root
+	commit := &Commitment{
+		Pk: p.pk,
+		Commit: root,
+	}
+
+	return commit
 }
 
 // return: hash of node, and the lgN hashes to verify node
@@ -154,8 +167,9 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 	if err != nil || n != hashSize {
 		panic(err)
 	}
+	f.Close()
 
-	proof := make([][]byte, log2(p.size)-1)
+	proof := make([][]byte, util.Log2(p.size)-1)
 	count := 0
 	for i := node+p.size; i > 1; i /= 2 { // root hash not needed, so >1
 		proof[count] = make([]byte, hashSize)
@@ -179,6 +193,7 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 			panic(err)
 		}
 		count++
+		f.Close()
 	}
 	return hash, proof
 }

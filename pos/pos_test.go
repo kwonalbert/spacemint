@@ -1,6 +1,7 @@
 package pos
 
 import (
+	"crypto/rand"
 	"fmt"
 	"log"
 	"os"
@@ -17,7 +18,9 @@ var graphDir string = "graph"
 //exp* gets setup in test.go
 
 func TestPoS(t *testing.T) {
-	challenges := verifier.SelectChallenges()
+	seed := make([]byte, 64)
+	rand.Read(seed)
+	challenges := verifier.SelectChallenges(seed)
 	hashes, proofs := prover.ProveSpace(challenges)
 	if !verifier.VerifySpace(challenges, hashes, proofs) {
 		log.Fatal("Verify space failed:", challenges)
@@ -90,7 +93,8 @@ func TestMain(m *testing.M) {
 	pk = []byte{1}
 	prover = NewProver(pk, size, graphDir)
 	setup(pk, size, graphDir)
-	root := prover.InitGraph()
+	commit := prover.InitGraph()
+	root := commit.Commit
 
 	verifier = NewVerifier(pk, size, beta, root)
 	os.Exit(m.Run())

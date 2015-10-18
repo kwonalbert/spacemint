@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
 	"math/rand"
 	"os"
@@ -59,7 +60,7 @@ func sampleGraph(pk []byte) [][]int{
 	expMerkle[1] = sha3.Sum256(val1)
 
 	//testing for node 1
-	expProof = make([][hashSize]byte, log2(4)-1)
+	expProof = make([][hashSize]byte, util.Log2(4)-1)
 	expProof[0] = expMerkle[4]
 	expProof[1] = expMerkle[3]
 

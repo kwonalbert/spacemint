@@ -11,14 +11,14 @@ import (
 
 type Block struct {
 	Id      int
-	Hash    *Hash
+	Hash    Hash
 	Trans   []Transaction
-	Sig     *Signature
+	Sig     Signature
 }
 
 type Hash struct {
 	Hash    []byte // hash of previous block
-	Proof   *PoS
+	Proof   PoS
 }
 
 type PoS struct {
@@ -40,7 +40,7 @@ type Signature struct {
 }
 
 
-func NewBlock(old *Block, prf *PoS, ts []Transaction, signer crypto.Signer) *Block {
+func NewBlock(old *Block, prf PoS, ts []Transaction, signer crypto.Signer) *Block {
 	oldH, err := old.Hash.MarshalBinary()
 	if err != nil {
 		panic(err)
@@ -76,9 +76,9 @@ func NewBlock(old *Block, prf *PoS, ts []Transaction, signer crypto.Signer) *Blo
 
 	b := Block{
 		Id: old.Id + 1,
-		Hash: &h,
+		Hash: h,
 		Trans: ts,
-		Sig: &sig,
+		Sig: sig,
 	}
 	return &b
 }

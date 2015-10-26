@@ -8,6 +8,7 @@ import (
 	"golang.org/x/crypto/sha3"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 )
 
 type Prover struct {
@@ -63,7 +64,16 @@ func (p *Prover) computeHash(node string) []byte {
 				if file.Name() == "hash" {
 					continue
 				}
-				ph = append(ph, p.computeHash(file.Name())...)
+				pn := fmt.Sprintf("%s/%s", nodeDir, file.Name())
+				parent, err := filepath.EvalSymlinks(pn)
+				if err != nil {
+					panic(err)
+				}
+				stat, err := os.Stat(parent)
+				if err != nil {
+					panic(err)
+				}
+				ph = append(ph, p.computeHash(stat.Name())...)
 			}
 			hashes := append(val, ph...)
 			hash = sha3.Sum256(hashes)

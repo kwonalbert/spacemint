@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
-	"math/rand"
 	"os"
 )
 
@@ -66,31 +65,6 @@ func sampleGraph(pk []byte) [][]int {
 	return adj
 }
 
-func randomGraph(n int) [][]int {
-	rand.Seed(47576409822)
-	// generate a random DAG
-	adj := make([][]int, n)
-	for i := range adj {
-		adj[i] = make([]int, n)
-	}
-
-	for i := range adj {
-		for j := range adj[i] {
-			// lower triangular matrix => DAG
-			if j >= i {
-				break
-			}
-			r := rand.Float64()
-			if r < 0.5 {
-				adj[i][j] = 1
-			} else {
-				adj[i][j] = 0
-			}
-		}
-	}
-	return adj
-}
-
 // NOTE: this is NOT the graph that should be used in the final version
 //       we need to generate a correct graph for PoS
 func setupGraph(adj [][]int, graph string) {
@@ -99,13 +73,14 @@ func setupGraph(adj [][]int, graph string) {
 	for i := range adj {
 		os.Mkdir(fmt.Sprintf("%s/%d", graph, i), 0777)
 	}
+	wd, _ := os.Getwd()
 	for i := range adj {
 		for j := range adj[i] {
 			if adj[i][j] == 0 {
 				continue
 			}
 			// i points to j => i is parent of j
-			err := os.Symlink(fmt.Sprintf("%s/%d", graph, i), fmt.Sprintf("%s/%d/%d", graph, j, i))
+			err := os.Symlink(fmt.Sprintf("%s/%s/%d", wd, graph, i), fmt.Sprintf("%s/%d/%d", graph, j, i))
 			if err != nil {
 				fmt.Println(err)
 			}

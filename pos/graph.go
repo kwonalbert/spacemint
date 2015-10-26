@@ -7,6 +7,7 @@ import (
 
 var graphBase string = "%s/%s%d-%d"
 var nodeBase string = "%s/%d-%d"
+var symBase string = "%s/%s/%d-%d"
 var parentBase string = "%s%d-%d.%d-%d"
 
 const (
@@ -20,12 +21,22 @@ const (
 func NewGraph(index int, dir string) {
 	os.Mkdir(dir, 0666)
 	// recursively generate graphs
+	XiGraph(index, 0, dir)
+	RenameNodes(index, dir)
+}
+
+// Rename all nodes in the graph so it just goes from 0 to O(2^index)
+func RenameNodes(index int, dir string) {
 
 }
 
 func ButterflyGraph(index int, inst int, name, dir string) {
+	wd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
 	graphDir := fmt.Sprintf(graphBase, dir, name, index, inst)
-	_, err := os.Stat(graphDir)
+	_, err = os.Stat(graphDir)
 	if err == nil { // already created graph
 		return
 	}
@@ -49,9 +60,9 @@ func ButterflyGraph(index int, inst int, name, dir string) {
 			}
 			prev1 := fmt.Sprintf("%d-%d", level-1, prev)
 			prev2 := fmt.Sprintf("%d-%d", level-1, i)
-			os.Symlink(fmt.Sprintf("%s/%s", graphDir, prev1),
+			os.Symlink(fmt.Sprintf("%s/%s/%s", wd, graphDir, prev1),
 				fmt.Sprintf("%s/%s", node, prev1))
-			os.Symlink(fmt.Sprintf("%s/%s", graphDir, prev2),
+			os.Symlink(fmt.Sprintf("%s/%s/%s", wd, graphDir, prev2),
 				fmt.Sprintf("%s/%s", node, prev2))
 		}
 	}
@@ -62,8 +73,12 @@ func XiGraph(index int, inst int, dir string) {
 		ButterflyGraph(index, inst, "Xi", dir)
 		return
 	}
+	wd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
 	graphDir := fmt.Sprintf(graphBase, dir, "Xi", index, inst)
-	err := os.Mkdir(graphDir, 0777)
+	err = os.Mkdir(graphDir, 0777)
 	if err != nil {
 		panic(err)
 	}
@@ -99,8 +114,8 @@ func XiGraph(index int, inst int, dir string) {
 	butterfly0 := fmt.Sprintf(graphBase, graphDir, "C", index-1, 0)
 	for i := 0; i < offset; i++ {
 		node := fmt.Sprintf(nodeBase, butterfly0, 0, i)
-		parent0 := fmt.Sprintf(nodeBase, graphDir, SO, i)
-		parent1 := fmt.Sprintf(nodeBase, graphDir, SO, i+offset)
+		parent0 := fmt.Sprintf(symBase, wd, graphDir, SO, i)
+		parent1 := fmt.Sprintf(symBase, wd, graphDir, SO, i+offset)
 		pn0 := fmt.Sprintf(parentBase, "Xi", index, 0, SO, i)
 		pn1 := fmt.Sprintf(parentBase, "Xi", index, 0, SO, i+offset)
 		err = os.Symlink(parent0, fmt.Sprintf("%s/%s", node, pn0))
@@ -118,7 +133,7 @@ func XiGraph(index int, inst int, dir string) {
 	for i := 0; i < offset; i++ {
 		node := fmt.Sprintf(nodeBase, xi0, SO, i)
 		// index is the last level; i.e., sinks
-		parent := fmt.Sprintf(nodeBase, butterfly0, index-1, i)
+		parent := fmt.Sprintf(symBase, wd, butterfly0, index-1, i)
 		ln := fmt.Sprintf("%s.%s", curGraph, "C")
 		pn := fmt.Sprintf(parentBase, ln, index-1, 0, index-1, i)
 		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node, pn))
@@ -131,8 +146,12 @@ func XiGraph(index int, inst int, dir string) {
 	xi1 := fmt.Sprintf(graphBase, graphDir, "Xi", index-1, 1)
 	for i := 0; i < offset; i++ {
 		node := fmt.Sprintf(nodeBase, xi1, SO, i)
-		parent := fmt.Sprintf(nodeBase, xi0, SI, i)
+		parent := fmt.Sprintf(symBase, wd, xi0, SI, i)
 		pn := fmt.Sprintf(parentBase, "Xi", index-1, 0, SI, i)
+		if index-1 == 0 {
+			parent = fmt.Sprintf(symBase, wd, xi0, SO, i)
+			pn = fmt.Sprintf(parentBase, "Xi", index-1, 0, SO, i)
+		}
 		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node, pn))
 		if err != nil {
 			panic(err)
@@ -143,7 +162,7 @@ func XiGraph(index int, inst int, dir string) {
 	butterfly1 := fmt.Sprintf(graphBase, graphDir, "C", index-1, 1)
 	for i := 0; i < offset; i++ {
 		node := fmt.Sprintf(nodeBase, butterfly1, 0, i)
-		parent := fmt.Sprintf(nodeBase, xi1, SI, i)
+		parent := fmt.Sprintf(symBase, wd, xi1, SI, i)
 		pn := fmt.Sprintf(parentBase, "Xi", index-1, 1, SI, i)
 		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node, pn))
 		if err != nil {
@@ -155,7 +174,7 @@ func XiGraph(index int, inst int, dir string) {
 	for i := 0; i < offset; i++ {
 		node0 := fmt.Sprintf(nodeBase, graphDir, SI, i)
 		node1 := fmt.Sprintf(nodeBase, graphDir, SI, i+offset)
-		parent := fmt.Sprintf(nodeBase, butterfly1, index-1, i)
+		parent := fmt.Sprintf(symBase, wd, butterfly1, index-1, i)
 		ln := fmt.Sprintf("%s.%s", curGraph, "C")
 		pn := fmt.Sprintf(parentBase, ln, index-1, 1, index-1, i)
 		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node0, pn))
@@ -171,7 +190,7 @@ func XiGraph(index int, inst int, dir string) {
 	// sources to sinks directly
 	for i := 0; i < int(1<<uint(index)); i++ {
 		node := fmt.Sprintf(nodeBase, graphDir, SI, i)
-		parent := fmt.Sprintf(nodeBase, graphDir, SO, i)
+		parent := fmt.Sprintf(symBase, wd, graphDir, SO, i)
 		pn := fmt.Sprintf(parentBase, "Xi", index, 0, SO, i)
 		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node, pn))
 		if err != nil {

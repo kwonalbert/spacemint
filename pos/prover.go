@@ -11,23 +11,23 @@ import (
 )
 
 type Prover struct {
-	pk              []byte
-	size            int    // # of vertices in the grpah
-	graph           string // directory containing the vertices
+	pk    []byte
+	size  int    // # of vertices in the grpah
+	graph string // directory containing the vertices
 
-	commit          []byte // root hash of the merkle tree
+	commit []byte // root hash of the merkle tree
 }
 
 type Commitment struct {
-	Pk              []byte
-	Commit          []byte
+	Pk     []byte
+	Commit []byte
 }
 
 func NewProver(pk []byte, size int, graph string) *Prover {
 	p := Prover{
-		pk:     pk,
-		size:   size,
-		graph:  graph,
+		pk:    pk,
+		size:  size,
+		graph: graph,
 	}
 	return &p
 }
@@ -52,7 +52,7 @@ func (p *Prover) computeHash(node string) []byte {
 
 		buf := new(bytes.Buffer)
 		binary.Write(buf, binary.BigEndian, node)
-		val := append(p.pk, buf.Bytes() ...)
+		val := append(p.pk, buf.Bytes()...)
 		var hash [hashSize]byte
 
 		if len(parents) == 0 { // source node
@@ -63,9 +63,9 @@ func (p *Prover) computeHash(node string) []byte {
 				if file.Name() == "hash" {
 					continue
 				}
-				ph = append(ph, p.computeHash(file.Name()) ...)
+				ph = append(ph, p.computeHash(file.Name())...)
 			}
-			hashes := append(val, ph ...)
+			hashes := append(val, ph...)
 			hash = sha3.Sum256(hashes)
 		}
 
@@ -83,7 +83,7 @@ func (p *Prover) computeHash(node string) []byte {
 }
 
 // Computes all the hashes of the vertices
-func (p *Prover) InitGraph() *Commitment {
+func (p *Prover) Init() *Commitment {
 	nodes, err := ioutil.ReadDir(p.graph)
 	if err != nil {
 		panic(err)
@@ -115,10 +115,10 @@ func (p *Prover) generateMerkle(node int) []byte {
 		f.Close()
 		return hash
 	} else {
-		hash1 := p.generateMerkle(node*2)
+		hash1 := p.generateMerkle(node * 2)
 		hash2 := p.generateMerkle(node*2 + 1)
-		val := append(hash1[:], hash2[:] ...)
-		val = append(p.pk, val ...)
+		val := append(hash1[:], hash2[:]...)
+		val = append(p.pk, val...)
 		hash := sha3.Sum256(val)
 		f, err := os.Create(fmt.Sprintf("%s/%s/%d", p.graph, "merkle", node))
 		if err != nil {
@@ -149,7 +149,7 @@ func (p *Prover) Commit() *Commitment {
 	p.commit = root
 
 	commit := &Commitment{
-		Pk: p.pk,
+		Pk:     p.pk,
 		Commit: root,
 	}
 
@@ -171,11 +171,11 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 
 	proof := make([][]byte, util.Log2(p.size)-1)
 	count := 0
-	for i := node+p.size; i > 1; i /= 2 { // root hash not needed, so >1
+	for i := node + p.size; i > 1; i /= 2 { // root hash not needed, so >1
 		proof[count] = make([]byte, hashSize)
 		var sib int
 
-		if i % 2 == 0 { // need to send only the sibling
+		if i%2 == 0 { // need to send only the sibling
 			sib = i + 1
 		} else {
 			sib = i - 1

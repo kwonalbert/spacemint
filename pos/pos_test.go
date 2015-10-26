@@ -17,6 +17,20 @@ var graphDir string = "graph"
 
 //exp* gets setup in test.go
 
+func TestButterflyGraph(t *testing.T) {
+	butterflyDir := "butterfly"
+	os.RemoveAll(butterflyDir)
+	os.Mkdir(butterflyDir, 0777)
+	ButterflyGraph(0, 0, "C", butterflyDir)
+}
+
+func TestXiGraph(t *testing.T) {
+	xiDir := "Xi"
+	os.RemoveAll(xiDir)
+	os.Mkdir(xiDir, 0777)
+	XiGraph(3, 0, xiDir)
+}
+
 func TestPoS(t *testing.T) {
 	seed := make([]byte, 64)
 	rand.Read(seed)
@@ -37,7 +51,7 @@ func TestOpenVerify(t *testing.T) {
 		}
 	}
 
-	if !verifier.Verify(1,hash, proof) {
+	if !verifier.Verify(1, hash, proof) {
 		log.Fatal("Verify failed:", hash, proof)
 	}
 }
@@ -81,7 +95,7 @@ func TestMerkleTree(t *testing.T) {
 		copy(result[i+size][:], buf)
 	}
 
-	for i := 2*size-1; i > 0; i-- {
+	for i := 2*size - 1; i > 0; i-- {
 		if expMerkle[i] != result[i] {
 			log.Fatal("Merkle node mismatch:", i, expMerkle[i], result[i])
 		}
@@ -91,9 +105,9 @@ func TestMerkleTree(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	pk = []byte{1}
+	Setup(pk, size, graphDir)
 	prover = NewProver(pk, size, graphDir)
-	setup(pk, size, graphDir)
-	commit := prover.InitGraph()
+	commit := prover.Init()
 	root := commit.Commit
 
 	verifier = NewVerifier(pk, size, beta, root)

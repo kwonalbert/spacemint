@@ -15,13 +15,13 @@ func Pow(x *big.Float, n int) *big.Float {
 	}
 	y := big.NewFloat(1)
 	for i := n; i > 1; {
-		if i % 2 == 0 {
+		if i%2 == 0 {
 			i /= 2
 		} else {
 			y = y.Mul(res, y)
-			i = (i-1)/2
+			i = (i - 1) / 2
 		}
-			res = res.Mul(res, res)
+		res = res.Mul(res, res)
 	}
 	return res.Mul(res, y)
 }
@@ -34,7 +34,7 @@ func Root(x *big.Float, n int) *big.Float {
 	diff := big.NewFloat(1)
 	ep := big.NewFloat(0.00000001)
 	abs := new(big.Float).Abs(diff)
-	for ; abs.Cmp(ep) >= 0; {
+	for abs.Cmp(ep) >= 0 {
 		//fmt.Println(guess, abs)
 		prev := Pow(guess, n-1)
 		diff = new(big.Float).Quo(x, prev)
@@ -50,18 +50,16 @@ func Root(x *big.Float, n int) *big.Float {
 // return: floor log base 2 of x
 func Log2(x int) int {
 	r := 0
-	for ; x > 0; x >>= 1 {
-		r++;
+	for ; x > 1; x >>= 1 {
+		r++
 	}
 	return r
 }
 
-
-
 func Concat(ls [][]byte) []byte {
 	var res []byte
 	for i := range ls {
-		res = append(res, ls[i] ...)
+		res = append(res, ls[i]...)
 	}
 	return res
 }

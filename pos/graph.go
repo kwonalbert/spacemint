@@ -22,12 +22,11 @@ func NewGraph(index int, dir string) {
 	os.Mkdir(dir, 0666)
 	// recursively generate graphs
 	XiGraph(index, 0, dir)
-	RenameNodes(index, dir)
 }
 
-// Rename all nodes in the graph so it just goes from 0 to O(2^index)
-func RenameNodes(index int, dir string) {
-
+// Maps a node index (0 to O(2^N)) to a folder (a physical node)
+func IndexToNode(node int, index int) string {
+	return fmt.Sprintf("%d", node)
 }
 
 func ButterflyGraph(index int, inst int, name, dir string) {

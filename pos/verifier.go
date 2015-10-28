@@ -3,22 +3,23 @@ package pos
 import (
 	"bytes"
 	"encoding/binary"
+	//"fmt"
 	"golang.org/x/crypto/sha3"
 )
 
 type Verifier struct {
-	pk              []byte // public key to verify the proof
-	size            int    // size of the graph
-	beta            int    // number of challenges needed
-	root            []byte // root hash
+	pk    []byte // public key to verify the proof
+	index int    // index of the graphy in the family
+	beta  int    // number of challenges needed
+	root  []byte // root hash
 }
 
-func NewVerifier(pk []byte, size int, beta int, root []byte) *Verifier {
+func NewVerifier(pk []byte, index int, beta int, root []byte) *Verifier {
 	v := Verifier{
-		pk:     pk,
-		root:   root,
-		beta:   beta,
-		size:   size,
+		pk:    pk,
+		index: index,
+		beta:  beta,
+		root:  root,
 	}
 	return &v
 }
@@ -30,12 +31,15 @@ func (v *Verifier) SelectChallenges(seed []byte) []int {
 	rands := make([]byte, v.beta*8)
 	sha3.ShakeSum256(rands, seed) //PRNG
 	for i := range challenges {
-		buf := bytes.NewBuffer(rands[i*8:(i+1)*8-1])
-		val, err := binary.ReadUvarint(buf)
+		buf := bytes.NewBuffer(rands[i*8 : (i+1)*8-1])
+		val, err := binary.ReadVarint(buf)
 		if err != nil {
 			panic(err)
 		}
-		challenges[i] = int(val) % v.size
+		challenges[i] = int(val) % v.index
+		if challenges[i] < 0 {
+			challenges[i] = v.index + challenges[i]
+		}
 	}
 	return challenges
 }
@@ -52,14 +56,14 @@ func (v *Verifier) VerifySpace(challenges []int, hashes [][]byte, proofs [][][]b
 func (v *Verifier) Verify(node int, hash []byte, proof [][]byte) bool {
 	curHash := hash
 	counter := 0
-	for i := node+v.size; i > 1; i /= 2 {
+	for i := node + v.index; i > 1; i /= 2 {
 		var val []byte
-		if i % 2 == 0 {
-			val = append(curHash, proof[counter] ...)
+		if i%2 == 0 {
+			val = append(curHash, proof[counter]...)
 		} else {
-			val = append(proof[counter], curHash ...)
+			val = append(proof[counter], curHash...)
 		}
-		val = append(v.pk, val ...)
+		val = append(v.pk, val...)
 		hash := sha3.Sum256(val)
 		curHash = hash[:]
 		counter++

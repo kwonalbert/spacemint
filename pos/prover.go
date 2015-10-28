@@ -12,10 +12,9 @@ import (
 )
 
 type Prover struct {
-	pk    []byte
-	size  int    // # of vertices in the grpah
-	graph string // directory containing the vertices
-
+	pk     []byte
+	index  int    // index of the graphy in the family; power of 2
+	graph  string // directory containing the vertices
 	commit []byte // root hash of the merkle tree
 }
 
@@ -24,10 +23,10 @@ type Commitment struct {
 	Commit []byte
 }
 
-func NewProver(pk []byte, size int, graph string) *Prover {
+func NewProver(pk []byte, index int, graph string) *Prover {
 	p := Prover{
 		pk:    pk,
-		size:  size,
+		index: index,
 		graph: graph,
 	}
 	return &p
@@ -111,11 +110,13 @@ func (p *Prover) Init() *Commitment {
 // Should have at most O(lgn) hashes in memory at a time
 // return: hash at node i
 func (p *Prover) generateMerkle(node int) []byte {
-	if node >= p.size { // real vertices
-		hf := fmt.Sprintf("%s/%d/%s", p.graph, node-p.size, hashName)
+	if node >= p.index { // real vertices
+		nodeDir := IndexToNode(node-p.index, p.index)
+		hf := fmt.Sprintf("%s/%s/%s", p.graph, nodeDir, hashName)
 		f, err := os.Open(hf)
+		// this node doesn't exist, so just return hashSize
 		if err != nil {
-			panic(err)
+			return make([]byte, hashSize)
 		}
 		hash := make([]byte, hashSize)
 		n, err := f.Read(hash)
@@ -169,19 +170,24 @@ func (p *Prover) Commit() *Commitment {
 // return: hash of node, and the lgN hashes to verify node
 func (p *Prover) Open(node int) ([]byte, [][]byte) {
 	hash := make([]byte, hashSize)
-	f, err := os.Open(fmt.Sprintf("%s/%d/hash", p.graph, node))
+	fn := fmt.Sprintf("%s/%d/hash", p.graph, node)
+	f, err := os.Open(fn)
 	if err != nil {
-		panic(err)
+		// can't open the file, and the file is there, panic
+		if _, err = os.Stat(fn); err == nil {
+			panic(err)
+		}
+	} else {
+		n, err := f.Read(hash)
+		if err != nil || n != hashSize {
+			panic(err)
+		}
+		f.Close()
 	}
-	n, err := f.Read(hash)
-	if err != nil || n != hashSize {
-		panic(err)
-	}
-	f.Close()
 
-	proof := make([][]byte, util.Log2(p.size)-1)
+	proof := make([][]byte, util.Log2(p.index))
 	count := 0
-	for i := node + p.size; i > 1; i /= 2 { // root hash not needed, so >1
+	for i := node + p.index; i > 1; i /= 2 { // root hash not needed, so >1
 		proof[count] = make([]byte, hashSize)
 		var sib int
 
@@ -190,11 +196,18 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 		} else {
 			sib = i - 1
 		}
-		if sib >= p.size {
-			f, err = os.Open(fmt.Sprintf("%s/%d/hash", p.graph, sib-p.size))
+
+		if sib >= p.index {
+			fn = fmt.Sprintf("%s/%d/hash", p.graph, sib-p.index)
 		} else {
-			f, err = os.Open(fmt.Sprintf("%s/%s/%d", p.graph, "merkle", sib))
+			fn = fmt.Sprintf("%s/%s/%d", p.graph, "merkle", sib)
 		}
+		_, err = os.Stat(fn)
+		if err != nil { // no file => not a physical node
+			count++
+			continue
+		}
+		f, err := os.Open(fn)
 		if err != nil {
 			panic(err)
 		}

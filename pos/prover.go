@@ -5,11 +5,7 @@ import (
 	"fmt"
 	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
-	"io/ioutil"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 )
 
 type Prover struct {
@@ -49,68 +45,28 @@ func NewProver(pk []byte, index int, graph string) *Prover {
 	return &p
 }
 
-func (p *Prover) computeHash(nodeDir string) []byte {
-	contents, err := ioutil.ReadDir(nodeDir)
-	if err != nil {
-		panic(err)
-	}
-	node := ""
-	for _, file := range contents {
-		if strings.Contains(file.Name(), "node") {
-			node = strings.Trim(file.Name(), "node")
-			break
-		}
-	}
-
-	hf := fmt.Sprintf("%s/%s", nodeDir, hashName)
-	f, err := os.Open(hf)
-	if err == nil { // hash has been computed before
-		hash := make([]byte, hashSize)
-		n, err := f.Read(hash)
-		if err != nil || n != hashSize {
-			panic(err)
-		}
-		f.Close()
-		return hash
+func (p *Prover) computeHash(nodeFile string) []byte {
+	node := GetNode(nodeFile, -1, nil, nil)
+	if node.Hash != nil { // hash has been computed before
+		return node.Hash
 	} else {
-		buf := make([]byte, 256)
-		nodeNum, err := strconv.Atoi(node)
-		if err != nil {
-			panic(err)
-		}
-		binary.PutVarint(buf, int64(nodeNum))
+		buf := make([]byte, hashSize)
+		binary.PutVarint(buf, int64(node.Id))
 		val := append(p.pk, buf...)
 		var hash [hashSize]byte
 
-		if len(contents) == 1 { // source node
+		if len(node.Parents) == 0 { // source node
 			hash = sha3.Sum256(val)
 		} else {
 			var ph []byte // parent hashes
-			for _, file := range contents {
-				if file.Name() == "hash" ||
-					strings.Contains(file.Name(), "node") {
-					continue
-				}
-				pn := fmt.Sprintf("%s/%s", nodeDir, file.Name())
-				parent, err := filepath.EvalSymlinks(pn)
-				if err != nil {
-					panic(err)
-				}
+			for _, parent := range node.Parents {
 				ph = append(ph, p.computeHash(parent)...)
 			}
 			hashes := append(val, ph...)
 			hash = sha3.Sum256(hashes)
 		}
-
-		f, err = os.Create(hf)
-		if err != nil {
-			panic(err)
-		}
-		n, err := f.Write(hash[:])
-		if err != nil || n != hashSize {
-			panic(err)
-		}
-		f.Close()
+		node.Hash = hash[:]
+		node.Write(nodeFile)
 		return hash[:]
 	}
 }
@@ -132,20 +88,9 @@ func (p *Prover) Init() *Commitment {
 // return: hash at node i
 func (p *Prover) generateMerkle(node int) []byte {
 	if node >= p.pow2 { // real vertices
-		nodeDir := IndexToNode(node-p.pow2, p.index, 0, p.graph)
-		hf := fmt.Sprintf("%s/%s", nodeDir, hashName)
-		f, err := os.Open(hf)
-		// this node doesn't exist, so just return hashSize
-		if err != nil {
-			return make([]byte, hashSize)
-		}
-		hash := make([]byte, hashSize)
-		n, err := f.Read(hash)
-		if err != nil || n != hashSize {
-			panic(err)
-		}
-		f.Close()
-		return hash
+		nodeFile := IndexToNode(node-p.pow2, p.index, 0, p.graph)
+		node := GetNode(nodeFile, -1, nil, nil)
+		return node.Hash
 	} else {
 		hash1 := p.generateMerkle(node * 2)
 		hash2 := p.generateMerkle(node*2 + 1)
@@ -190,27 +135,19 @@ func (p *Prover) Commit() *Commitment {
 
 // return: hash of node, and the lgN hashes to verify node
 func (p *Prover) Open(node int) ([]byte, [][]byte) {
-	hash := make([]byte, hashSize)
-	nodeDir := IndexToNode(node, p.index, 0, p.graph)
-	fn := fmt.Sprintf("%s/%s", nodeDir, hashName)
-	f, err := os.Open(fn)
-	if err != nil {
-		// can't open the file, and the file is there, panic
-		if _, err = os.Stat(fn); err == nil {
-			panic(err)
-		}
+	var hash []byte
+	nodeFile := IndexToNode(node, p.index, 0, p.graph)
+	_, err := os.Stat(nodeFile)
+	if err == nil {
+		node := GetNode(nodeFile, -1, nil, nil)
+		hash = node.Hash
 	} else {
-		n, err := f.Read(hash)
-		if err != nil || n != hashSize {
-			panic(err)
-		}
-		f.Close()
+		hash = make([]byte, hashSize)
 	}
 
 	proof := make([][]byte, p.log2)
 	count := 0
 	for i := node + p.pow2; i > 1; i /= 2 { // root hash not needed, so >1
-		proof[count] = make([]byte, hashSize)
 		var sib int
 
 		if i%2 == 0 { // need to send only the sibling
@@ -220,26 +157,28 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 		}
 
 		if sib >= p.pow2 {
-			nodeDir := IndexToNode(sib-p.pow2, p.index, 0, p.graph)
-			fn = fmt.Sprintf("%s/%s", nodeDir, hashName)
+			nodeFile := IndexToNode(sib-p.pow2, p.index, 0, p.graph)
+			_, err = os.Stat(nodeFile)
+			if err == nil {
+				node := GetNode(nodeFile, -1, nil, nil)
+				proof[count] = node.Hash
+			} else {
+				proof[count] = make([]byte, hashSize)
+			}
 		} else {
-			fn = fmt.Sprintf("%s/%s/%d", p.graph, "merkle", sib)
-		}
-		_, err = os.Stat(fn)
-		if err != nil { // no file => not a physical node
-			count++
-			continue
-		}
-		f, err := os.Open(fn)
-		if err != nil {
-			panic(err)
-		}
-		n, err := f.Read(proof[count])
-		if err != nil || n != hashSize {
-			panic(err)
+			proof[count] = make([]byte, hashSize)
+			fn := fmt.Sprintf("%s/%s/%d", p.graph, "merkle", sib)
+			f, err := os.Open(fn)
+			if err != nil {
+				panic(err)
+			}
+			n, err := f.Read(proof[count])
+			if err != nil || n != hashSize {
+				panic(err)
+			}
+			f.Close()
 		}
 		count++
-		f.Close()
 	}
 	return hash, proof
 }

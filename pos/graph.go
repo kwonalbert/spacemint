@@ -1,7 +1,9 @@
 package pos
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	//"runtime/pprof"
 )
@@ -16,6 +18,65 @@ const (
 	SO = 0
 	SI = 1
 )
+
+type Node struct {
+	Id      int      // node id
+	Hash    []byte   // hash at the file
+	Parents []string // parent node files
+}
+
+func (n *Node) MarshalBinary() ([]byte, error) {
+	return json.Marshal(n)
+}
+
+func (n *Node) UnmarshalBinary(data []byte) error {
+	return json.Unmarshal(data, n)
+}
+
+// Gets the node at nodeFile, and update the node.
+// Otherwise, create a node
+func GetNode(nodeFile string, id int, hash []byte, parents []string) *Node {
+	node := new(Node)
+	if nodeFile != "" {
+		_, err := os.Stat(nodeFile)
+		if err == nil { //file exists
+			f, err := os.Open(nodeFile)
+			if err != nil {
+				panic(err)
+			}
+			b, err := ioutil.ReadAll(f)
+			if err != nil {
+				panic(err)
+			}
+			err = node.UnmarshalBinary(b)
+			if err != nil {
+				panic(err)
+			}
+			f.Close()
+		}
+	} else {
+		node.Id = id
+		node.Hash = hash
+	}
+	node.Parents = append(parents, node.Parents...)
+	return node
+}
+
+func (n *Node) Write(nodeFile string) {
+	b, err := n.MarshalBinary()
+	if err != nil {
+		panic(err)
+	}
+	f, err := os.Create(nodeFile)
+	if err != nil {
+		panic(err)
+	}
+	num, err := f.Write(b)
+	if err != nil || num != len(b) {
+		panic(err)
+	}
+	f.Close()
+}
 
 // Generate a new PoS graph of index
 // Currently only supports the weaker PoS graph
@@ -99,21 +160,12 @@ func ButterflyGraph(index int, inst int, name, dir string, count *int) {
 	numLevel := 2 * index
 	for level := 0; level < numLevel; level++ {
 		for i := 0; i < int(1<<uint(index)); i++ {
-			node := fmt.Sprintf(nodeBase, graphDir, level, i)
-			err := os.Mkdir(node, 0777)
-			if err != nil {
-				panic(err)
-			}
-
-			f, err := os.Create(fmt.Sprintf(countBase, node, *count))
-			if err != nil {
-				panic(err)
-			}
-			f.Close()
-			*count += 1
-
 			// no parents at level 0
+			nodeFile := fmt.Sprintf(nodeBase, graphDir, level, i)
 			if level == 0 {
+				node := GetNode("", *count, nil, nil)
+				node.Write(nodeFile)
+				*count++
 				continue
 			}
 			prev := 0
@@ -128,10 +180,14 @@ func ButterflyGraph(index int, inst int, name, dir string, count *int) {
 			}
 			prev1 := fmt.Sprintf("%d-%d", level-1, prev)
 			prev2 := fmt.Sprintf("%d-%d", level-1, i)
-			os.Symlink(fmt.Sprintf("%s/%s/%s", wd, graphDir, prev1),
-				fmt.Sprintf("%s/%s", node, prev1))
-			os.Symlink(fmt.Sprintf("%s/%s/%s", wd, graphDir, prev2),
-				fmt.Sprintf("%s/%s", node, prev2))
+			parent1 := fmt.Sprintf("%s/%s/%s", wd, graphDir, prev1)
+			parent2 := fmt.Sprintf("%s/%s/%s", wd, graphDir, prev2)
+
+			parents := []string{parent1, parent2}
+			node := GetNode("", *count, nil, parents)
+			//fmt.Println(nodeFile, node)
+			node.Write(nodeFile)
+			*count++
 		}
 	}
 }
@@ -152,18 +208,11 @@ func XiGraph(index int, inst int, dir string, count *int) {
 	}
 
 	for i := 0; i < int(1<<uint(index)); i++ {
-		// "0" for sources
-		node := fmt.Sprintf(nodeBase, graphDir, SO, i)
-		err = os.Mkdir(node, 0777)
-		if err != nil {
-			panic(err)
-		}
-		f, err := os.Create(fmt.Sprintf(countBase, node, *count))
-		if err != nil {
-			panic(err)
-		}
-		f.Close()
-		*count += 1
+		// "SO" for sources
+		nodeFile := fmt.Sprintf(nodeBase, graphDir, SO, i)
+		node := GetNode("", *count, nil, nil)
+		node.Write(nodeFile)
+		*count++
 	}
 
 	// recursively generate graphs
@@ -173,108 +222,72 @@ func XiGraph(index int, inst int, dir string, count *int) {
 	ButterflyGraph(index-1, 1, "C", graphDir, count)
 
 	for i := 0; i < int(1<<uint(index)); i++ {
-		// "1" for sinks
-		node := fmt.Sprintf(nodeBase, graphDir, SI, i)
-		err = os.Mkdir(node, 0777)
-		if err != nil {
-			panic(err)
-		}
-		f, err := os.Create(fmt.Sprintf(countBase, node, *count))
-		if err != nil {
-			panic(err)
-		}
-		f.Close()
-		*count += 1
+		// "SI" for sinks
+		nodeFile := fmt.Sprintf(nodeBase, graphDir, SI, i)
+		node := GetNode("", *count, nil, nil)
+		node.Write(nodeFile)
+		*count++
 	}
 
-	curGraph := fmt.Sprintf("%s%d-%d", "Xi", index, inst)
 	offset := int(1 << uint(index-1)) //2^(index-1)
 
 	// sources to sources of first butterfly
 	butterfly0 := fmt.Sprintf(graphBase, graphDir, "C", index-1, 0)
 	for i := 0; i < offset; i++ {
-		node := fmt.Sprintf(nodeBase, butterfly0, 0, i)
+		nodeFile := fmt.Sprintf(nodeBase, butterfly0, 0, i)
 		parent0 := fmt.Sprintf(symBase, wd, graphDir, SO, i)
 		parent1 := fmt.Sprintf(symBase, wd, graphDir, SO, i+offset)
-		pn0 := fmt.Sprintf(parentBase, "Xi", index, 0, SO, i)
-		pn1 := fmt.Sprintf(parentBase, "Xi", index, 0, SO, i+offset)
-		err = os.Symlink(parent0, fmt.Sprintf("%s/%s", node, pn0))
-		if err != nil {
-			panic(err)
-		}
-		err = os.Symlink(parent1, fmt.Sprintf("%s/%s", node, pn1))
-		if err != nil {
-			panic(err)
-		}
+		node := GetNode(nodeFile, -1, nil, []string{parent0, parent1})
+		node.Write(nodeFile)
 	}
 
 	// sinks of first butterfly to sources of first xi graph
 	xi0 := fmt.Sprintf(graphBase, graphDir, "Xi", index-1, 0)
 	for i := 0; i < offset; i++ {
-		node := fmt.Sprintf(nodeBase, xi0, SO, i)
+		nodeFile := fmt.Sprintf(nodeBase, xi0, SO, i)
 		// index is the last level; i.e., sinks
 		parent := fmt.Sprintf(symBase, wd, butterfly0, 2*(index-1)-1, i)
-		ln := fmt.Sprintf("%s.%s", curGraph, "C")
-		pn := fmt.Sprintf(parentBase, ln, index-1, 0, 2*(index-1)-1, i)
-		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node, pn))
-		if err != nil {
-			panic(err)
-		}
+		node := GetNode(nodeFile, -1, nil, []string{parent})
+		node.Write(nodeFile)
 	}
 
 	// sinks of first xi to sources of second xi
 	xi1 := fmt.Sprintf(graphBase, graphDir, "Xi", index-1, 1)
 	for i := 0; i < offset; i++ {
-		node := fmt.Sprintf(nodeBase, xi1, SO, i)
+		nodeFile := fmt.Sprintf(nodeBase, xi1, SO, i)
 		parent := fmt.Sprintf(symBase, wd, xi0, SI, i)
-		pn := fmt.Sprintf(parentBase, "Xi", index-1, 0, SI, i)
 		if index-1 == 0 {
 			parent = fmt.Sprintf(symBase, wd, xi0, SO, i)
-			pn = fmt.Sprintf(parentBase, "Xi", index-1, 0, SO, i)
 		}
-		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node, pn))
-		if err != nil {
-			panic(err)
-		}
+		node := GetNode(nodeFile, -1, nil, []string{parent})
+		node.Write(nodeFile)
 	}
 
 	// sinks of second xi to sources of second butterfly
 	butterfly1 := fmt.Sprintf(graphBase, graphDir, "C", index-1, 1)
 	for i := 0; i < offset; i++ {
-		node := fmt.Sprintf(nodeBase, butterfly1, 0, i)
+		nodeFile := fmt.Sprintf(nodeBase, butterfly1, 0, i)
 		parent := fmt.Sprintf(symBase, wd, xi1, SI, i)
-		pn := fmt.Sprintf(parentBase, "Xi", index-1, 1, SI, i)
-		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node, pn))
-		if err != nil {
-			panic(err)
-		}
+		node := GetNode(nodeFile, -1, nil, []string{parent})
+		node.Write(nodeFile)
 	}
 
 	// sinks of second butterfly to sinks
 	for i := 0; i < offset; i++ {
-		node0 := fmt.Sprintf(nodeBase, graphDir, SI, i)
-		node1 := fmt.Sprintf(nodeBase, graphDir, SI, i+offset)
+		nodeFile0 := fmt.Sprintf(nodeBase, graphDir, SI, i)
+		nodeFile1 := fmt.Sprintf(nodeBase, graphDir, SI, i+offset)
 		parent := fmt.Sprintf(symBase, wd, butterfly1, 2*(index-1)-1, i)
-		ln := fmt.Sprintf("%s.%s", curGraph, "C")
-		pn := fmt.Sprintf(parentBase, ln, index-1, 1, 2*(index-1)-1, i)
-		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node0, pn))
-		if err != nil {
-			panic(err)
-		}
-		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node1, pn))
-		if err != nil {
-			panic(err)
-		}
+		node0 := GetNode(nodeFile0, -1, nil, []string{parent})
+		node1 := GetNode(nodeFile1, -1, nil, []string{parent})
+		node0.Write(nodeFile0)
+		node1.Write(nodeFile1)
 	}
 
 	// sources to sinks directly
 	for i := 0; i < int(1<<uint(index)); i++ {
-		node := fmt.Sprintf(nodeBase, graphDir, SI, i)
+		nodeFile := fmt.Sprintf(nodeBase, graphDir, SI, i)
 		parent := fmt.Sprintf(symBase, wd, graphDir, SO, i)
-		pn := fmt.Sprintf(parentBase, "Xi", index, 0, SO, i)
-		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node, pn))
-		if err != nil {
-			panic(err)
-		}
+		node := GetNode(nodeFile, -1, nil, []string{parent})
+		node.Write(nodeFile)
 	}
 }

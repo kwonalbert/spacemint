@@ -12,10 +12,14 @@ import (
 var prover *Prover = nil
 var verifier *Verifier = nil
 var pk []byte
-var index int = 9
+var index int = 10
 var size int = 0
 var beta int = 10
 var graphDir string = "Xi"
+
+func TestEmpty(t *testing.T) {
+
+}
 
 func TestPoS(t *testing.T) {
 	seed := make([]byte, 64)
@@ -101,7 +105,7 @@ func TestMain(m *testing.M) {
 	prover = NewProver(pk, index, graphDir)
 	commit := prover.Init()
 	root := commit.Commit
-
 	verifier = NewVerifier(pk, index, beta, root)
+
 	os.Exit(m.Run())
 }

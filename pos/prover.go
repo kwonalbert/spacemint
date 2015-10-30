@@ -1,7 +1,6 @@
 package pos
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"github.com/kwonalbert/spacecoin/util"
@@ -9,13 +8,19 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 type Prover struct {
 	pk     []byte
-	index  int    // index of the graphy in the family; power of 2
 	graph  string // directory containing the vertices
 	commit []byte // root hash of the merkle tree
+
+	index int // index of the graphy in the family; power of 2
+	size  int // size of the graph
+	pow2  int // next closest power of 2
+	log2  int // next closest log
 }
 
 type Commitment struct {
@@ -24,16 +29,39 @@ type Commitment struct {
 }
 
 func NewProver(pk []byte, index int, graph string) *Prover {
+	size := numXi(index)
+	log2 := util.Log2(size) + 1
+	pow2 := 1 << uint(log2)
+	if (1 << uint(log2-1)) == size {
+		log2--
+		pow2 = 1 << uint(log2)
+	}
+
 	p := Prover{
 		pk:    pk,
-		index: index,
 		graph: graph,
+
+		index: index,
+		size:  size,
+		pow2:  pow2,
+		log2:  log2,
 	}
 	return &p
 }
 
-func (p *Prover) computeHash(node string) []byte {
-	nodeDir := fmt.Sprintf("%s/%s", p.graph, node)
+func (p *Prover) computeHash(nodeDir string) []byte {
+	contents, err := ioutil.ReadDir(nodeDir)
+	if err != nil {
+		panic(err)
+	}
+	node := ""
+	for _, file := range contents {
+		if strings.Contains(file.Name(), "node") {
+			node = strings.Trim(file.Name(), "node")
+			break
+		}
+	}
+
 	hf := fmt.Sprintf("%s/%s", nodeDir, hashName)
 	f, err := os.Open(hf)
 	if err == nil { // hash has been computed before
@@ -45,22 +73,22 @@ func (p *Prover) computeHash(node string) []byte {
 		f.Close()
 		return hash
 	} else {
-		parents, err := ioutil.ReadDir(nodeDir)
+		buf := make([]byte, 256)
+		nodeNum, err := strconv.Atoi(node)
 		if err != nil {
 			panic(err)
 		}
-
-		buf := new(bytes.Buffer)
-		binary.Write(buf, binary.BigEndian, node)
-		val := append(p.pk, buf.Bytes()...)
+		binary.PutVarint(buf, int64(nodeNum))
+		val := append(p.pk, buf...)
 		var hash [hashSize]byte
 
-		if len(parents) == 0 { // source node
+		if len(contents) == 1 { // source node
 			hash = sha3.Sum256(val)
 		} else {
 			var ph []byte // parent hashes
-			for _, file := range parents {
-				if file.Name() == "hash" {
+			for _, file := range contents {
+				if file.Name() == "hash" ||
+					strings.Contains(file.Name(), "node") {
 					continue
 				}
 				pn := fmt.Sprintf("%s/%s", nodeDir, file.Name())
@@ -68,11 +96,7 @@ func (p *Prover) computeHash(node string) []byte {
 				if err != nil {
 					panic(err)
 				}
-				stat, err := os.Stat(parent)
-				if err != nil {
-					panic(err)
-				}
-				ph = append(ph, p.computeHash(stat.Name())...)
+				ph = append(ph, p.computeHash(parent)...)
 			}
 			hashes := append(val, ph...)
 			hash = sha3.Sum256(hashes)
@@ -93,14 +117,11 @@ func (p *Prover) computeHash(node string) []byte {
 
 // Computes all the hashes of the vertices
 func (p *Prover) Init() *Commitment {
-	nodes, err := ioutil.ReadDir(p.graph)
-	if err != nil {
-		panic(err)
-	}
+	graphDir := fmt.Sprintf(graphBase, p.graph, "Xi", p.index, 0)
 
-	for _, file := range nodes {
-		node := file.Name()
-		p.computeHash(node)
+	for i := 0; i < (1 << uint(p.index)); i++ {
+		nodeDir := fmt.Sprintf(nodeBase, graphDir, SI, i)
+		p.computeHash(nodeDir)
 	}
 
 	return p.Commit()
@@ -110,9 +131,9 @@ func (p *Prover) Init() *Commitment {
 // Should have at most O(lgn) hashes in memory at a time
 // return: hash at node i
 func (p *Prover) generateMerkle(node int) []byte {
-	if node >= p.index { // real vertices
-		nodeDir := IndexToNode(node-p.index, p.index)
-		hf := fmt.Sprintf("%s/%s/%s", p.graph, nodeDir, hashName)
+	if node >= p.pow2 { // real vertices
+		nodeDir := IndexToNode(node-p.pow2, p.index, 0, p.graph)
+		hf := fmt.Sprintf("%s/%s", nodeDir, hashName)
 		f, err := os.Open(hf)
 		// this node doesn't exist, so just return hashSize
 		if err != nil {
@@ -170,7 +191,8 @@ func (p *Prover) Commit() *Commitment {
 // return: hash of node, and the lgN hashes to verify node
 func (p *Prover) Open(node int) ([]byte, [][]byte) {
 	hash := make([]byte, hashSize)
-	fn := fmt.Sprintf("%s/%d/hash", p.graph, node)
+	nodeDir := IndexToNode(node, p.index, 0, p.graph)
+	fn := fmt.Sprintf("%s/%s", nodeDir, hashName)
 	f, err := os.Open(fn)
 	if err != nil {
 		// can't open the file, and the file is there, panic
@@ -185,9 +207,9 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 		f.Close()
 	}
 
-	proof := make([][]byte, util.Log2(p.index))
+	proof := make([][]byte, p.log2)
 	count := 0
-	for i := node + p.index; i > 1; i /= 2 { // root hash not needed, so >1
+	for i := node + p.pow2; i > 1; i /= 2 { // root hash not needed, so >1
 		proof[count] = make([]byte, hashSize)
 		var sib int
 
@@ -197,8 +219,9 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 			sib = i - 1
 		}
 
-		if sib >= p.index {
-			fn = fmt.Sprintf("%s/%d/hash", p.graph, sib-p.index)
+		if sib >= p.pow2 {
+			nodeDir := IndexToNode(sib-p.pow2, p.index, 0, p.graph)
+			fn = fmt.Sprintf("%s/%s", nodeDir, hashName)
 		} else {
 			fn = fmt.Sprintf("%s/%s/%d", p.graph, "merkle", sib)
 		}
@@ -228,6 +251,7 @@ func (p *Prover) ProveSpace(challenges []int) ([][]byte, [][][]byte) {
 	proofs := make([][][]byte, len(challenges))
 	for i := range challenges {
 		hashes[i], proofs[i] = p.Open(challenges[i])
+		//TODO: open parents also
 	}
 	return hashes, proofs
 }

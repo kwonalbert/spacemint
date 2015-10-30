@@ -4,22 +4,36 @@ import (
 	"bytes"
 	"encoding/binary"
 	//"fmt"
+	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
 )
 
 type Verifier struct {
-	pk    []byte // public key to verify the proof
-	index int    // index of the graphy in the family
-	beta  int    // number of challenges needed
-	root  []byte // root hash
+	pk   []byte // public key to verify the proof
+	beta int    // number of challenges needed
+	root []byte // root hash
+
+	index int // index of the graphy in the family
+	size  int
+	pow2  int
 }
 
 func NewVerifier(pk []byte, index int, beta int, root []byte) *Verifier {
+	size := numXi(index)
+	log2 := util.Log2(size) + 1
+	pow2 := 1 << uint(log2)
+	if (1 << uint(log2-1)) == size {
+		pow2 = 1 << uint(log2)
+	}
+
 	v := Verifier{
-		pk:    pk,
+		pk:   pk,
+		beta: beta,
+		root: root,
+
 		index: index,
-		beta:  beta,
-		root:  root,
+		size:  size,
+		pow2:  pow2,
 	}
 	return &v
 }
@@ -36,9 +50,9 @@ func (v *Verifier) SelectChallenges(seed []byte) []int {
 		if err != nil {
 			panic(err)
 		}
-		challenges[i] = int(val) % v.index
+		challenges[i] = int(val) % v.size
 		if challenges[i] < 0 {
-			challenges[i] = v.index + challenges[i]
+			challenges[i] = v.size + challenges[i]
 		}
 	}
 	return challenges
@@ -56,7 +70,7 @@ func (v *Verifier) VerifySpace(challenges []int, hashes [][]byte, proofs [][][]b
 func (v *Verifier) Verify(node int, hash []byte, proof [][]byte) bool {
 	curHash := hash
 	counter := 0
-	for i := node + v.index; i > 1; i /= 2 {
+	for i := node + v.pow2; i > 1; i /= 2 {
 		var val []byte
 		if i%2 == 0 {
 			val = append(curHash, proof[counter]...)

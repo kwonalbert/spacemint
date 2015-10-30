@@ -3,12 +3,14 @@ package pos
 import (
 	"fmt"
 	"os"
+	//"runtime/pprof"
 )
 
 var graphBase string = "%s/%s%d-%d"
 var nodeBase string = "%s/%d-%d"
 var symBase string = "%s/%s/%d-%d"
 var parentBase string = "%s%d-%d.%d-%d"
+var countBase string = "%s/node%d"
 
 const (
 	SO = 0
@@ -19,17 +21,68 @@ const (
 // Currently only supports the weaker PoS graph
 // Note that this graph will have O(2^index) nodes
 func NewGraph(index int, dir string) {
-	os.Mkdir(dir, 0666)
+	// cpuprofile := "cpu.prof"
+	// f, _ := os.Create(cpuprofile)
+	// pprof.StartCPUProfile(f)
+	// defer pprof.StopCPUProfile()
+
+	// Be careful when calling this!
+	os.RemoveAll(dir)
+	os.Mkdir(dir, 0777)
 	// recursively generate graphs
-	XiGraph(index, 0, dir)
+	count := 0
+	XiGraph(index, 0, dir, &count)
+}
+
+func numXi(index int) int {
+	return (1 << uint(index)) * (index + 1) * index
+}
+
+func numButterfly(index int) int {
+	return 2 * (1 << uint(index)) * index
 }
 
 // Maps a node index (0 to O(2^N)) to a folder (a physical node)
-func IndexToNode(node int, index int) string {
-	return fmt.Sprintf("%d", node)
+func IndexToNode(node int, index int, inst int, dir string) string {
+	//return fmt.Sprintf("%s/%d", dir, node)
+	sources := 1 << uint(index)
+	firstButter := sources + numButterfly(index-1)
+	firstXi := firstButter + numXi(index-1)
+	secondXi := firstXi + numXi(index-1)
+	secondButter := secondXi + numButterfly(index-1)
+	sinks := secondButter + sources
+
+	graphDir := fmt.Sprintf(graphBase, dir, "Xi", index, inst)
+
+	if node < sources {
+		return fmt.Sprintf(nodeBase, graphDir, SO, node)
+	} else if node >= sources && node < firstButter {
+		node = node - sources
+		butterfly0 := fmt.Sprintf(graphBase, graphDir, "C", index-1, 0)
+		level := node / (1 << uint(index-1))
+		nodeNum := node % (1 << uint(index-1))
+		return fmt.Sprintf(nodeBase, butterfly0, level, nodeNum)
+	} else if node >= firstButter && node < firstXi {
+		node = node - firstButter
+		return IndexToNode(node, index-1, 0, graphDir)
+	} else if node >= firstXi && node < secondXi {
+		node = node - firstXi
+		return IndexToNode(node, index-1, 1, graphDir)
+	} else if node >= secondXi && node < secondButter {
+		node = node - secondXi
+		butterfly1 := fmt.Sprintf(graphBase, graphDir, "C", index-1, 1)
+		level := node / (1 << uint(index-1))
+		nodeNum := node % (1 << uint(index-1))
+		return fmt.Sprintf(nodeBase, butterfly1, level, nodeNum)
+	} else if node >= secondButter && node < sinks {
+		node = node - secondButter
+		return fmt.Sprintf(nodeBase, graphDir, SI, node)
+	} else {
+		return ""
+	}
 }
 
-func ButterflyGraph(index int, inst int, name, dir string) {
+func ButterflyGraph(index int, inst int, name, dir string, count *int) {
 	wd, err := os.Getwd()
 	if err != nil {
 		panic(err)
@@ -43,19 +96,35 @@ func ButterflyGraph(index int, inst int, name, dir string) {
 	if err != nil {
 		panic(err)
 	}
-	for level := 0; level < index+1; level++ {
+	numLevel := 2 * index
+	for level := 0; level < numLevel; level++ {
 		for i := 0; i < int(1<<uint(index)); i++ {
 			node := fmt.Sprintf(nodeBase, graphDir, level, i)
-			os.Mkdir(node, 0777)
+			err := os.Mkdir(node, 0777)
+			if err != nil {
+				panic(err)
+			}
+
+			f, err := os.Create(fmt.Sprintf(countBase, node, *count))
+			if err != nil {
+				panic(err)
+			}
+			f.Close()
+			*count += 1
+
 			// no parents at level 0
 			if level == 0 {
 				continue
 			}
 			prev := 0
-			if (i>>uint(level-1))&1 == 0 {
-				prev = i + (1 << uint(level-1))
+			shift := index - level
+			if level > numLevel/2 {
+				shift = level - numLevel/2
+			}
+			if (i>>uint(shift))&1 == 0 {
+				prev = i + (1 << uint(shift))
 			} else {
-				prev = i - (1 << uint(level-1))
+				prev = i - (1 << uint(shift))
 			}
 			prev1 := fmt.Sprintf("%d-%d", level-1, prev)
 			prev2 := fmt.Sprintf("%d-%d", level-1, i)
@@ -67,9 +136,9 @@ func ButterflyGraph(index int, inst int, name, dir string) {
 	}
 }
 
-func XiGraph(index int, inst int, dir string) {
-	if index == 0 {
-		ButterflyGraph(index, inst, "Xi", dir)
+func XiGraph(index int, inst int, dir string, count *int) {
+	if index == 1 {
+		ButterflyGraph(index, inst, "Xi", dir, count)
 		return
 	}
 	wd, err := os.Getwd()
@@ -82,14 +151,6 @@ func XiGraph(index int, inst int, dir string) {
 		panic(err)
 	}
 
-	// generate the two butterfly graphs on top and bottom
-	ButterflyGraph(index-1, 0, "C", graphDir)
-	ButterflyGraph(index-1, 1, "C", graphDir)
-
-	// recursively generate XI graphs
-	XiGraph(index-1, 0, graphDir)
-	XiGraph(index-1, 1, graphDir)
-
 	for i := 0; i < int(1<<uint(index)); i++ {
 		// "0" for sources
 		node := fmt.Sprintf(nodeBase, graphDir, SO, i)
@@ -97,17 +158,37 @@ func XiGraph(index int, inst int, dir string) {
 		if err != nil {
 			panic(err)
 		}
+		f, err := os.Create(fmt.Sprintf(countBase, node, *count))
+		if err != nil {
+			panic(err)
+		}
+		f.Close()
+		*count += 1
+	}
+
+	// recursively generate graphs
+	ButterflyGraph(index-1, 0, "C", graphDir, count)
+	XiGraph(index-1, 0, graphDir, count)
+	XiGraph(index-1, 1, graphDir, count)
+	ButterflyGraph(index-1, 1, "C", graphDir, count)
+
+	for i := 0; i < int(1<<uint(index)); i++ {
 		// "1" for sinks
-		node = fmt.Sprintf(nodeBase, graphDir, SI, i)
+		node := fmt.Sprintf(nodeBase, graphDir, SI, i)
 		err = os.Mkdir(node, 0777)
 		if err != nil {
 			panic(err)
 		}
+		f, err := os.Create(fmt.Sprintf(countBase, node, *count))
+		if err != nil {
+			panic(err)
+		}
+		f.Close()
+		*count += 1
 	}
 
-	offset := int(1 << uint(index-1)) //2^(index-1)
-
 	curGraph := fmt.Sprintf("%s%d-%d", "Xi", index, inst)
+	offset := int(1 << uint(index-1)) //2^(index-1)
 
 	// sources to sources of first butterfly
 	butterfly0 := fmt.Sprintf(graphBase, graphDir, "C", index-1, 0)
@@ -132,9 +213,9 @@ func XiGraph(index int, inst int, dir string) {
 	for i := 0; i < offset; i++ {
 		node := fmt.Sprintf(nodeBase, xi0, SO, i)
 		// index is the last level; i.e., sinks
-		parent := fmt.Sprintf(symBase, wd, butterfly0, index-1, i)
+		parent := fmt.Sprintf(symBase, wd, butterfly0, 2*(index-1)-1, i)
 		ln := fmt.Sprintf("%s.%s", curGraph, "C")
-		pn := fmt.Sprintf(parentBase, ln, index-1, 0, index-1, i)
+		pn := fmt.Sprintf(parentBase, ln, index-1, 0, 2*(index-1)-1, i)
 		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node, pn))
 		if err != nil {
 			panic(err)
@@ -173,9 +254,9 @@ func XiGraph(index int, inst int, dir string) {
 	for i := 0; i < offset; i++ {
 		node0 := fmt.Sprintf(nodeBase, graphDir, SI, i)
 		node1 := fmt.Sprintf(nodeBase, graphDir, SI, i+offset)
-		parent := fmt.Sprintf(symBase, wd, butterfly1, index-1, i)
+		parent := fmt.Sprintf(symBase, wd, butterfly1, 2*(index-1)-1, i)
 		ln := fmt.Sprintf("%s.%s", curGraph, "C")
-		pn := fmt.Sprintf(parentBase, ln, index-1, 1, index-1, i)
+		pn := fmt.Sprintf(parentBase, ln, index-1, 1, 2*(index-1)-1, i)
 		err = os.Symlink(parent, fmt.Sprintf("%s/%s", node0, pn))
 		if err != nil {
 			panic(err)

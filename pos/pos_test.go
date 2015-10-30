@@ -2,7 +2,7 @@ package pos
 
 import (
 	"crypto/rand"
-	"fmt"
+	//"fmt"
 	"log"
 	"os"
 	"testing"
@@ -12,24 +12,10 @@ import (
 var prover *Prover = nil
 var verifier *Verifier = nil
 var pk []byte
-var size int = 5
-var index int = 8
-var beta int = 2
-var graphDir string = "graph"
-
-// func TestButterflyGraph(t *testing.T) {
-// 	butterflyDir := "butterfly"
-// 	os.RemoveAll(butterflyDir)
-// 	os.Mkdir(butterflyDir, 0777)
-// 	ButterflyGraph(0, 0, "C", butterflyDir)
-// }
-
-// func TestXiGraph(t *testing.T) {
-// 	xiDir := "Xi"
-// 	os.RemoveAll(xiDir)
-// 	os.Mkdir(xiDir, 0777)
-// 	XiGraph(3, 0, xiDir)
-// }
+var index int = 9
+var size int = 0
+var beta int = 10
+var graphDir string = "Xi"
 
 func TestPoS(t *testing.T) {
 	seed := make([]byte, 64)
@@ -56,59 +42,62 @@ func TestOpenVerify(t *testing.T) {
 	}
 }
 
-//Sanity check using simple graph
-//[0 0 0 0 0]
-//[1 0 0 0 0]
-//[1 0 0 0 0]
-//[1 0 1 0 0]
-//[0 1 0 1 0]
-func TestComputeHash(t *testing.T) {
-	hashes := make([][]byte, size)
-	for i := range hashes {
-		f, _ := os.Open(fmt.Sprintf("%s/%d/hash", graphDir, i))
-		hashes[i] = make([]byte, hashSize)
-		f.Read(hashes[i])
-	}
+// //Sanity check using simple graph
+// //[0 0 0 0 0]
+// //[1 0 0 0 0]
+// //[1 0 0 0 0]
+// //[1 0 1 0 0]
+// //[0 1 0 1 0]
+// func TestComputeHash(t *testing.T) {
+// 	hashes := make([][]byte, size)
+// 	for i := range hashes {
+// 		f, _ := os.Open(fmt.Sprintf("%s/%d/hash", graphDir, i))
+// 		hashes[i] = make([]byte, hashSize)
+// 		f.Read(hashes[i])
+// 	}
 
-	var result [hashSize]byte
+// 	// var result [hashSize]byte
 
-	for i := range expHashes {
-		copy(result[:], hashes[i])
-		if expHashes[i] != result {
-			log.Fatal("Hash mismatch:", expHashes[i], result)
-		}
+// 	// for i := range expHashes {
+// 	// 	copy(result[:], hashes[i])
+// 	// 	if expHashes[i] != result {
+// 	// 		log.Fatal("Hash mismatch:", expHashes[i], result)
+// 	// 	}
 
-	}
-}
+// 	// }
+// }
 
-func TestMerkleTree(t *testing.T) {
-	result := make([][hashSize]byte, 2*index)
-	for i := 1; i < index; i++ {
-		f, _ := os.Open(fmt.Sprintf("%s/merkle/%d", graphDir, i))
-		buf := make([]byte, hashSize)
-		f.Read(buf)
-		copy(result[i][:], buf)
-	}
-	for i := 0; i < index; i++ {
-		f, err := os.Open(fmt.Sprintf("%s/%d/hash", graphDir, i))
-		if err == nil {
-			buf := make([]byte, hashSize)
-			f.Read(buf)
-			copy(result[i+index][:], buf)
-		} // if no such node exists, then just consider hash to be 0
-	}
+// func TestMerkleTree(t *testing.T) {
+// 	result := make([][hashSize]byte, 2*index)
+// 	for i := 1; i < index; i++ {
+// 		f, _ := os.Open(fmt.Sprintf("%s/merkle/%d", graphDir, i))
+// 		buf := make([]byte, hashSize)
+// 		f.Read(buf)
+// 		copy(result[i][:], buf)
+// 	}
+// 	for i := 0; i < index; i++ {
+// 		f, err := os.Open(fmt.Sprintf("%s/%d/hash", graphDir, i))
+// 		if err == nil {
+// 			buf := make([]byte, hashSize)
+// 			f.Read(buf)
+// 			copy(result[i+index][:], buf)
+// 		} // if no such node exists, then just consider hash to be 0
+// 	}
 
-	for i := 2*index - 1; i > 0; i-- {
-		if expMerkle[i] != result[i] {
-			log.Fatal("Merkle node mismatch:", i, expMerkle[i], result[i])
-		}
-	}
+// 	for i := 2*index - 1; i > 0; i-- {
+// 		if expMerkle[i] != result[i] {
+// 			log.Fatal("Merkle node mismatch:", i, expMerkle[i], result[i])
+// 		}
+// 	}
 
-}
+// }
 
 func TestMain(m *testing.M) {
+	size = numXi(index)
+	NewGraph(index, "Xi")
+
 	pk = []byte{1}
-	Setup(pk, size, index, graphDir)
+	//Setup(pk, size, index, graphDir)
 	prover = NewProver(pk, index, graphDir)
 	commit := prover.Init()
 	root := commit.Commit

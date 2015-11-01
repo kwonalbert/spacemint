@@ -12,10 +12,10 @@ import (
 var prover *Prover = nil
 var verifier *Verifier = nil
 var pk []byte
-var index int = 10
+var index int = 3
 var size int = 0
 var beta int = 10
-var graphDir string = "Xi"
+var graphDir string = "/tmp/Xi"
 
 func TestEmpty(t *testing.T) {
 
@@ -98,7 +98,7 @@ func TestOpenVerify(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	size = numXi(index)
-	NewGraph(index, "Xi")
+	NewGraph(index, "/tmp/Xi")
 
 	pk = []byte{1}
 	//Setup(pk, size, index, graphDir)

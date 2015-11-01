@@ -10,7 +10,7 @@ import (
 
 var graphBase string = "%s/%s%d-%d"
 var nodeBase string = "%s/%d-%d"
-var symBase string = "%s/%s/%d-%d"
+var symBase string = "%s/%d-%d"
 var parentBase string = "%s%d-%d.%d-%d"
 var countBase string = "%s/node%d"
 
@@ -105,7 +105,6 @@ func numButterfly(index int) int {
 
 // Maps a node index (0 to O(2^N)) to a folder (a physical node)
 func IndexToNode(node int, index int, inst int, dir string) string {
-	//return fmt.Sprintf("%s/%d", dir, node)
 	sources := 1 << uint(index)
 	firstButter := sources + numButterfly(index-1)
 	firstXi := firstButter + numXi(index-1)
@@ -144,12 +143,8 @@ func IndexToNode(node int, index int, inst int, dir string) string {
 }
 
 func ButterflyGraph(index int, inst int, name, dir string, count *int) {
-	wd, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
 	graphDir := fmt.Sprintf(graphBase, dir, name, index, inst)
-	_, err = os.Stat(graphDir)
+	_, err := os.Stat(graphDir)
 	if err == nil { // already created graph
 		return
 	}
@@ -180,12 +175,11 @@ func ButterflyGraph(index int, inst int, name, dir string, count *int) {
 			}
 			prev1 := fmt.Sprintf("%d-%d", level-1, prev)
 			prev2 := fmt.Sprintf("%d-%d", level-1, i)
-			parent1 := fmt.Sprintf("%s/%s/%s", wd, graphDir, prev1)
-			parent2 := fmt.Sprintf("%s/%s/%s", wd, graphDir, prev2)
+			parent1 := fmt.Sprintf("%s/%s", graphDir, prev1)
+			parent2 := fmt.Sprintf("%s/%s", graphDir, prev2)
 
 			parents := []string{parent1, parent2}
 			node := GetNode("", *count, nil, parents)
-			//fmt.Println(nodeFile, node)
 			node.Write(nodeFile)
 			*count++
 		}
@@ -197,12 +191,8 @@ func XiGraph(index int, inst int, dir string, count *int) {
 		ButterflyGraph(index, inst, "Xi", dir, count)
 		return
 	}
-	wd, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
 	graphDir := fmt.Sprintf(graphBase, dir, "Xi", index, inst)
-	err = os.Mkdir(graphDir, 0777)
+	err := os.Mkdir(graphDir, 0777)
 	if err != nil {
 		panic(err)
 	}
@@ -235,8 +225,8 @@ func XiGraph(index int, inst int, dir string, count *int) {
 	butterfly0 := fmt.Sprintf(graphBase, graphDir, "C", index-1, 0)
 	for i := 0; i < offset; i++ {
 		nodeFile := fmt.Sprintf(nodeBase, butterfly0, 0, i)
-		parent0 := fmt.Sprintf(symBase, wd, graphDir, SO, i)
-		parent1 := fmt.Sprintf(symBase, wd, graphDir, SO, i+offset)
+		parent0 := fmt.Sprintf(symBase, graphDir, SO, i)
+		parent1 := fmt.Sprintf(symBase, graphDir, SO, i+offset)
 		node := GetNode(nodeFile, -1, nil, []string{parent0, parent1})
 		node.Write(nodeFile)
 	}
@@ -246,7 +236,7 @@ func XiGraph(index int, inst int, dir string, count *int) {
 	for i := 0; i < offset; i++ {
 		nodeFile := fmt.Sprintf(nodeBase, xi0, SO, i)
 		// index is the last level; i.e., sinks
-		parent := fmt.Sprintf(symBase, wd, butterfly0, 2*(index-1)-1, i)
+		parent := fmt.Sprintf(symBase, butterfly0, 2*(index-1)-1, i)
 		node := GetNode(nodeFile, -1, nil, []string{parent})
 		node.Write(nodeFile)
 	}
@@ -255,9 +245,9 @@ func XiGraph(index int, inst int, dir string, count *int) {
 	xi1 := fmt.Sprintf(graphBase, graphDir, "Xi", index-1, 1)
 	for i := 0; i < offset; i++ {
 		nodeFile := fmt.Sprintf(nodeBase, xi1, SO, i)
-		parent := fmt.Sprintf(symBase, wd, xi0, SI, i)
+		parent := fmt.Sprintf(symBase, xi0, SI, i)
 		if index-1 == 0 {
-			parent = fmt.Sprintf(symBase, wd, xi0, SO, i)
+			parent = fmt.Sprintf(symBase, xi0, SO, i)
 		}
 		node := GetNode(nodeFile, -1, nil, []string{parent})
 		node.Write(nodeFile)
@@ -267,7 +257,7 @@ func XiGraph(index int, inst int, dir string, count *int) {
 	butterfly1 := fmt.Sprintf(graphBase, graphDir, "C", index-1, 1)
 	for i := 0; i < offset; i++ {
 		nodeFile := fmt.Sprintf(nodeBase, butterfly1, 0, i)
-		parent := fmt.Sprintf(symBase, wd, xi1, SI, i)
+		parent := fmt.Sprintf(symBase, xi1, SI, i)
 		node := GetNode(nodeFile, -1, nil, []string{parent})
 		node.Write(nodeFile)
 	}
@@ -276,7 +266,7 @@ func XiGraph(index int, inst int, dir string, count *int) {
 	for i := 0; i < offset; i++ {
 		nodeFile0 := fmt.Sprintf(nodeBase, graphDir, SI, i)
 		nodeFile1 := fmt.Sprintf(nodeBase, graphDir, SI, i+offset)
-		parent := fmt.Sprintf(symBase, wd, butterfly1, 2*(index-1)-1, i)
+		parent := fmt.Sprintf(symBase, butterfly1, 2*(index-1)-1, i)
 		node0 := GetNode(nodeFile0, -1, nil, []string{parent})
 		node1 := GetNode(nodeFile1, -1, nil, []string{parent})
 		node0.Write(nodeFile0)
@@ -286,7 +276,7 @@ func XiGraph(index int, inst int, dir string, count *int) {
 	// sources to sinks directly
 	for i := 0; i < int(1<<uint(index)); i++ {
 		nodeFile := fmt.Sprintf(nodeBase, graphDir, SI, i)
-		parent := fmt.Sprintf(symBase, wd, graphDir, SO, i)
+		parent := fmt.Sprintf(symBase, graphDir, SO, i)
 		node := GetNode(nodeFile, -1, nil, []string{parent})
 		node.Write(nodeFile)
 	}

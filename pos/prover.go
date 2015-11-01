@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
-	"os"
 )
 
 type Prover struct {
-	pk     []byte
-	graph  string // directory containing the vertices
-	name   string
+	pk    []byte
+	graph *Graph // storage for all the graphs
+	name  string
+
 	commit []byte // root hash of the merkle tree
 
 	index int // index of the graphy in the family; power of 2
@@ -34,9 +34,11 @@ func NewProver(pk []byte, index int, name, graph string) *Prover {
 		pow2 = 1 << uint(log2)
 	}
 
+	g := NewGraph(index, name, graph)
+
 	p := Prover{
 		pk:    pk,
-		graph: graph,
+		graph: g,
 		name:  name,
 
 		index: index,
@@ -47,8 +49,8 @@ func NewProver(pk []byte, index int, name, graph string) *Prover {
 	return &p
 }
 
-func (p *Prover) computeHash(nodeFile string) []byte {
-	node := GetNode(nodeFile, -1, nil, nil)
+func (p *Prover) computeHash(nodeName string) []byte {
+	node := p.graph.GetNode(nodeName, -1, nil, nil)
 	if node.Hash != nil { // hash has been computed before
 		return node.Hash
 	} else {
@@ -68,7 +70,12 @@ func (p *Prover) computeHash(nodeFile string) []byte {
 			hash = sha3.Sum256(hashes)
 		}
 		node.Hash = hash[:]
-		node.Write(nodeFile)
+		p.graph.Write(node, nodeName)
+		err := p.graph.s.Flush()
+		if err != nil {
+			panic(err)
+		}
+
 		return hash[:]
 	}
 }
@@ -78,7 +85,7 @@ func (p *Prover) Init() *Commitment {
 	curGraph := fmt.Sprintf(graphBase, p.name, posName, p.index, 0)
 
 	for i := 0; i < (1 << uint(p.index)); i++ {
-		nodeFile := fmt.Sprintf(nodeBase, p.graph, curGraph, SI, i)
+		nodeFile := fmt.Sprintf(nodeBase, curGraph, SI, i)
 		p.computeHash(nodeFile)
 	}
 
@@ -90,24 +97,28 @@ func (p *Prover) Init() *Commitment {
 // return: hash at node i
 func (p *Prover) generateMerkle(node int) []byte {
 	if node >= p.pow2 { // real vertices
-		nodeFile := IndexToNode(node-p.pow2, p.index, 0, p.name, p.graph)
-		node := GetNode(nodeFile, -1, nil, nil)
-		return node.Hash
+		nodeName := IndexToNode(node-p.pow2, p.index, 0, p.name)
+		n := p.graph.GetNode(nodeName, -1, nil, nil)
+		if n.Hash == nil {
+			return make([]byte, hashSize)
+		} else {
+			return n.Hash
+		}
 	} else {
 		hash1 := p.generateMerkle(node * 2)
 		hash2 := p.generateMerkle(node*2 + 1)
 		val := append(hash1[:], hash2[:]...)
 		val = append(p.pk, val...)
 		hash := sha3.Sum256(val)
-		f, err := os.Create(fmt.Sprintf("%s/%s/%d", p.graph, "merkle", node))
+
+		nodeName := fmt.Sprintf("merkle/%d", node)
+		n := p.graph.GetNode(nodeName, -1, hash[:], nil)
+		p.graph.Write(n, nodeName)
+		err := p.graph.s.Flush()
 		if err != nil {
 			panic(err)
 		}
-		n, err := f.Write(hash[:])
-		if err != nil || n != hashSize {
-			panic(err)
-		}
-		f.Close()
+
 		return hash[:]
 	}
 }
@@ -116,12 +127,6 @@ func (p *Prover) generateMerkle(node int) []byte {
 // return: root hash of the merkle tree
 //         will also write out the merkle tree
 func (p *Prover) Commit() *Commitment {
-	folder := fmt.Sprintf("%s/%s", p.graph, "merkle")
-	err := os.Mkdir(folder, 0777)
-	if err != nil {
-		panic(err)
-	}
-
 	// build the merkle tree in depth first fashion
 	// root node is 1
 	root := p.generateMerkle(1)
@@ -138,12 +143,10 @@ func (p *Prover) Commit() *Commitment {
 // return: hash of node, and the lgN hashes to verify node
 func (p *Prover) Open(node int) ([]byte, [][]byte) {
 	var hash []byte
-	nodeFile := IndexToNode(node, p.index, 0, p.name, p.graph)
-	_, err := os.Stat(nodeFile)
-	if err == nil {
-		node := GetNode(nodeFile, -1, nil, nil)
-		hash = node.Hash
-	} else {
+	nodeName := IndexToNode(node, p.index, 0, p.name)
+	n := p.graph.GetNode(nodeName, -1, nil, nil)
+	hash = n.Hash
+	if hash == nil {
 		hash = make([]byte, hashSize)
 	}
 
@@ -158,27 +161,15 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 			sib = i - 1
 		}
 
+		proof[count] = make([]byte, hashSize)
 		if sib >= p.pow2 {
-			nodeFile := IndexToNode(sib-p.pow2, p.index, 0, p.name, p.graph)
-			_, err = os.Stat(nodeFile)
-			if err == nil {
-				node := GetNode(nodeFile, -1, nil, nil)
-				proof[count] = node.Hash
-			} else {
-				proof[count] = make([]byte, hashSize)
-			}
+			nodeName = IndexToNode(sib-p.pow2, p.index, 0, p.name)
 		} else {
-			proof[count] = make([]byte, hashSize)
-			fn := fmt.Sprintf("%s/%s/%d", p.graph, "merkle", sib)
-			f, err := os.Open(fn)
-			if err != nil {
-				panic(err)
-			}
-			n, err := f.Read(proof[count])
-			if err != nil || n != hashSize {
-				panic(err)
-			}
-			f.Close()
+			nodeName = fmt.Sprintf("merkle/%d", sib)
+		}
+		node := p.graph.GetNode(nodeName, -1, nil, nil)
+		if node.Hash != nil {
+			proof[count] = node.Hash
 		}
 		count++
 	}

@@ -13,7 +13,7 @@ import (
 var prover *Prover = nil
 var verifier *Verifier = nil
 var pk []byte
-var index int = 6
+var index int = 10
 var size int = 0
 var beta int = 10
 var graphDir string = "/tmp/Xi"
@@ -105,17 +105,14 @@ func TestOpenVerify(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	size = numXi(index)
+	pk = []byte{1}
 
 	now := time.Now()
-	NewGraph(index, name, graphDir)
+	prover = NewProver(pk, index, name, graphDir)
 	fmt.Printf("Graph gen: %fs\n", time.Since(now).Seconds())
 
 	now = time.Now()
-	pk = []byte{1}
-	//Setup(pk, size, index, graphDir)
-	prover = NewProver(pk, index, name, graphDir)
 	commit := prover.Init()
-
 	fmt.Printf("Graph commit: %fs\n", time.Since(now).Seconds())
 
 	root := commit.Commit

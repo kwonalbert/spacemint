@@ -11,6 +11,7 @@ import (
 type Prover struct {
 	pk     []byte
 	graph  string // directory containing the vertices
+	name   string
 	commit []byte // root hash of the merkle tree
 
 	index int // index of the graphy in the family; power of 2
@@ -24,7 +25,7 @@ type Commitment struct {
 	Commit []byte
 }
 
-func NewProver(pk []byte, index int, graph string) *Prover {
+func NewProver(pk []byte, index int, name, graph string) *Prover {
 	size := numXi(index)
 	log2 := util.Log2(size) + 1
 	pow2 := 1 << uint(log2)
@@ -36,6 +37,7 @@ func NewProver(pk []byte, index int, graph string) *Prover {
 	p := Prover{
 		pk:    pk,
 		graph: graph,
+		name:  name,
 
 		index: index,
 		size:  size,
@@ -73,11 +75,11 @@ func (p *Prover) computeHash(nodeFile string) []byte {
 
 // Computes all the hashes of the vertices
 func (p *Prover) Init() *Commitment {
-	graphDir := fmt.Sprintf(graphBase, p.graph, "Xi", p.index, 0)
+	curGraph := fmt.Sprintf(graphBase, p.name, posName, p.index, 0)
 
 	for i := 0; i < (1 << uint(p.index)); i++ {
-		nodeDir := fmt.Sprintf(nodeBase, graphDir, SI, i)
-		p.computeHash(nodeDir)
+		nodeFile := fmt.Sprintf(nodeBase, p.graph, curGraph, SI, i)
+		p.computeHash(nodeFile)
 	}
 
 	return p.Commit()
@@ -88,7 +90,7 @@ func (p *Prover) Init() *Commitment {
 // return: hash at node i
 func (p *Prover) generateMerkle(node int) []byte {
 	if node >= p.pow2 { // real vertices
-		nodeFile := IndexToNode(node-p.pow2, p.index, 0, p.graph)
+		nodeFile := IndexToNode(node-p.pow2, p.index, 0, p.name, p.graph)
 		node := GetNode(nodeFile, -1, nil, nil)
 		return node.Hash
 	} else {
@@ -136,7 +138,7 @@ func (p *Prover) Commit() *Commitment {
 // return: hash of node, and the lgN hashes to verify node
 func (p *Prover) Open(node int) ([]byte, [][]byte) {
 	var hash []byte
-	nodeFile := IndexToNode(node, p.index, 0, p.graph)
+	nodeFile := IndexToNode(node, p.index, 0, p.name, p.graph)
 	_, err := os.Stat(nodeFile)
 	if err == nil {
 		node := GetNode(nodeFile, -1, nil, nil)
@@ -157,7 +159,7 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 		}
 
 		if sib >= p.pow2 {
-			nodeFile := IndexToNode(sib-p.pow2, p.index, 0, p.graph)
+			nodeFile := IndexToNode(sib-p.pow2, p.index, 0, p.name, p.graph)
 			_, err = os.Stat(nodeFile)
 			if err == nil {
 				node := GetNode(nodeFile, -1, nil, nil)

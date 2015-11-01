@@ -2,20 +2,22 @@ package pos
 
 import (
 	"crypto/rand"
-	//"fmt"
+	"fmt"
 	"log"
 	"os"
 	"testing"
+	"time"
 )
 
 //exp* gets setup in test.go
 var prover *Prover = nil
 var verifier *Verifier = nil
 var pk []byte
-var index int = 3
+var index int = 6
 var size int = 0
 var beta int = 10
 var graphDir string = "/tmp/Xi"
+var name string = "G"
 
 func TestEmpty(t *testing.T) {
 
@@ -25,10 +27,15 @@ func TestPoS(t *testing.T) {
 	seed := make([]byte, 64)
 	rand.Read(seed)
 	challenges := verifier.SelectChallenges(seed)
+	now := time.Now()
 	hashes, proofs := prover.ProveSpace(challenges)
+	fmt.Printf("Prove: %f\n", time.Since(now).Seconds())
+
+	now = time.Now()
 	if !verifier.VerifySpace(challenges, hashes, proofs) {
 		log.Fatal("Verify space failed:", challenges)
 	}
+	fmt.Printf("Verify: %f\n", time.Since(now).Seconds())
 }
 
 func TestOpenVerify(t *testing.T) {
@@ -98,12 +105,19 @@ func TestOpenVerify(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	size = numXi(index)
-	NewGraph(index, "/tmp/Xi")
 
+	now := time.Now()
+	NewGraph(index, name, graphDir)
+	fmt.Printf("Graph gen: %fs\n", time.Since(now).Seconds())
+
+	now = time.Now()
 	pk = []byte{1}
 	//Setup(pk, size, index, graphDir)
-	prover = NewProver(pk, index, graphDir)
+	prover = NewProver(pk, index, name, graphDir)
 	commit := prover.Init()
+
+	fmt.Printf("Graph commit: %fs\n", time.Since(now).Seconds())
+
 	root := commit.Commit
 	verifier = NewVerifier(pk, index, beta, root)
 

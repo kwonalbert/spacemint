@@ -50,32 +50,31 @@ func NewProver(pk []byte, index int, name, graph string) *Prover {
 }
 
 func (p *Prover) computeHash(nodeName string) []byte {
-	node := p.graph.GetNode(nodeName, -1, nil, nil)
-	if node.Hash != nil { // hash has been computed before
-		return node.Hash
+	n := p.graph.GetNode(nodeName)
+	if n.H != nil { // hash has been computed before
+		return n.H
 	} else {
 		buf := make([]byte, hashSize)
-		binary.PutVarint(buf, int64(node.Id))
+		binary.PutVarint(buf, int64(n.I))
 		val := append(p.pk, buf...)
 		var hash [hashSize]byte
 
-		if len(node.Parents) == 0 { // source node
+		if len(n.Ps) == 0 { // source node
 			hash = sha3.Sum256(val)
 		} else {
 			var ph []byte // parent hashes
-			for _, parent := range node.Parents {
+			for _, parent := range n.Ps {
 				ph = append(ph, p.computeHash(parent)...)
 			}
 			hashes := append(val, ph...)
 			hash = sha3.Sum256(hashes)
 		}
-		node.Hash = hash[:]
-		p.graph.Write(node, nodeName)
+		n.H = hash[:]
+		p.graph.WriteNode(n, nodeName)
 		err := p.graph.s.Flush()
 		if err != nil {
 			panic(err)
 		}
-
 		return hash[:]
 	}
 }
@@ -98,11 +97,11 @@ func (p *Prover) Init() *Commitment {
 func (p *Prover) generateMerkle(node int) []byte {
 	if node >= p.pow2 { // real vertices
 		nodeName := IndexToNode(node-p.pow2, p.index, 0, p.name)
-		n := p.graph.GetNode(nodeName, -1, nil, nil)
-		if n.Hash == nil {
+		n := p.graph.GetNode(nodeName)
+		if n == nil {
 			return make([]byte, hashSize)
 		} else {
-			return n.Hash
+			return n.H
 		}
 	} else {
 		hash1 := p.generateMerkle(node * 2)
@@ -111,13 +110,8 @@ func (p *Prover) generateMerkle(node int) []byte {
 		val = append(p.pk, val...)
 		hash := sha3.Sum256(val)
 
-		nodeName := fmt.Sprintf("merkle/%d", node)
-		n := p.graph.GetNode(nodeName, -1, hash[:], nil)
-		p.graph.Write(n, nodeName)
-		err := p.graph.s.Flush()
-		if err != nil {
-			panic(err)
-		}
+		nodeName := fmt.Sprintf("M%d", node)
+		p.graph.NewNode(nodeName, -1, hash[:], nil)
 
 		return hash[:]
 	}
@@ -130,6 +124,10 @@ func (p *Prover) Commit() *Commitment {
 	// build the merkle tree in depth first fashion
 	// root node is 1
 	root := p.generateMerkle(1)
+	err := p.graph.s.Flush()
+	if err != nil {
+		panic(err)
+	}
 	p.commit = root
 
 	commit := &Commitment{
@@ -144,9 +142,10 @@ func (p *Prover) Commit() *Commitment {
 func (p *Prover) Open(node int) ([]byte, [][]byte) {
 	var hash []byte
 	nodeName := IndexToNode(node, p.index, 0, p.name)
-	n := p.graph.GetNode(nodeName, -1, nil, nil)
-	hash = n.Hash
-	if hash == nil {
+	n := p.graph.GetNode(nodeName)
+	if n != nil {
+		hash = n.H
+	} else {
 		hash = make([]byte, hashSize)
 	}
 
@@ -165,11 +164,11 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 		if sib >= p.pow2 {
 			nodeName = IndexToNode(sib-p.pow2, p.index, 0, p.name)
 		} else {
-			nodeName = fmt.Sprintf("merkle/%d", sib)
+			nodeName = fmt.Sprintf("M%d", sib)
 		}
-		node := p.graph.GetNode(nodeName, -1, nil, nil)
-		if node.Hash != nil {
-			proof[count] = node.Hash
+		n := p.graph.GetNode(nodeName)
+		if n != nil {
+			proof[count] = n.H
 		}
 		count++
 	}

@@ -13,7 +13,7 @@ import (
 var prover *Prover = nil
 var verifier *Verifier = nil
 var pk []byte
-var index int = 10
+var index int = 3
 var size int = 0
 var beta int = 10
 var graphDir string = "/tmp/Xi"

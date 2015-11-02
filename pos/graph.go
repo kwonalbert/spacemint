@@ -17,14 +17,15 @@ const (
 )
 
 type Graph struct {
-	s *gkvlite.Store
-	c *gkvlite.Collection
+	fn string
+	s  *gkvlite.Store
+	c  *gkvlite.Collection
 }
 
 type Node struct {
-	Id      int      // node id
-	Hash    []byte   // hash at the file
-	Parents []string // parent node files
+	I  int      // node id
+	H  []byte   `json:",omitempty"` // hash at the file
+	Ps []string `json:",omitempty"` // parent node files
 }
 
 func (n *Node) MarshalBinary() ([]byte, error) {
@@ -33,6 +34,10 @@ func (n *Node) MarshalBinary() ([]byte, error) {
 
 func (n *Node) UnmarshalBinary(data []byte) error {
 	return json.Unmarshal(data, n)
+}
+
+func (n *Node) UpdateParents(parents []string) {
+	n.Ps = append(n.Ps, parents...)
 }
 
 // Generate a new PoS graph of index
@@ -55,20 +60,38 @@ func NewGraph(index int, name, fn string) *Graph {
 	c := s.SetCollection("nodes", nil)
 
 	g := &Graph{
-		s: s,
-		c: c,
+		fn: fn,
+		s:  s,
+		c:  c,
 	}
 
 	g.XiGraph(index, 0, name, &count)
 
+	s.Flush()
 	f.Sync()
+
+	g.Compact()
 
 	return g
 }
 
+func (g *Graph) NewNode(nodeName string, id int, hash []byte, ps []string) {
+	node := &Node{
+		I:  id,
+		H:  hash,
+		Ps: ps,
+	}
+
+	g.WriteNode(node, nodeName)
+	err := g.s.Flush()
+	if err != nil {
+		panic(err)
+	}
+}
+
 // Gets the node, and update the node.
 // Otherwise, create a node
-func (g *Graph) GetNode(nodeName string, id int, hash []byte, parents []string) *Node {
+func (g *Graph) GetNode(nodeName string) *Node {
 	node := new(Node)
 	val, err := g.c.Get([]byte(nodeName))
 	if err != nil {
@@ -76,20 +99,32 @@ func (g *Graph) GetNode(nodeName string, id int, hash []byte, parents []string) 
 	}
 	if val != nil {
 		node.UnmarshalBinary(val)
+		return node
 	} else {
-		node.Id = id
-		node.Hash = hash
+		return nil
 	}
-	node.Parents = append(parents, node.Parents...)
-	return node
 }
 
-func (g *Graph) Write(n *Node, nodeName string) {
+func (g *Graph) WriteNode(n *Node, nodeName string) {
 	b, err := n.MarshalBinary()
 	if err != nil {
 		panic(err)
 	}
 	g.c.Set([]byte(nodeName), b)
+}
+
+func (g *Graph) Compact() {
+	newFn := fmt.Sprintf("%s_", g.fn)
+	f, err := os.Create(newFn)
+	if err != nil {
+		panic(err)
+	}
+	newS, err := g.s.CopyTo(f, 8388608) //hold up to gig in mem
+	if err != nil {
+		panic(err)
+	}
+	g.s = newS
+	g.c = newS.GetCollection("nodes")
 }
 
 func numXi(index int) int {
@@ -147,8 +182,7 @@ func (g *Graph) ButterflyGraph(index, inst int, name, graph string, count *int) 
 			// no parents at level 0
 			nodeName := fmt.Sprintf(nodeBase, curGraph, level, i)
 			if level == 0 {
-				node := g.GetNode("", *count, nil, nil)
-				g.Write(node, nodeName)
+				g.NewNode(nodeName, *count, nil, nil)
 				*count++
 				continue
 			}
@@ -168,8 +202,7 @@ func (g *Graph) ButterflyGraph(index, inst int, name, graph string, count *int) 
 			parent2 := fmt.Sprintf("%s.%s", curGraph, prev2)
 
 			parents := []string{parent1, parent2}
-			node := g.GetNode("", *count, nil, parents)
-			g.Write(node, nodeName)
+			g.NewNode(nodeName, *count, nil, parents)
 			*count++
 		}
 	}
@@ -190,8 +223,7 @@ func (g *Graph) XiGraph(index, inst int, graph string, count *int) {
 	for i := 0; i < int(1<<uint(index)); i++ {
 		// "SO" for sources
 		nodeName := fmt.Sprintf(nodeBase, curGraph, SO, i)
-		node := g.GetNode("", *count, nil, nil)
-		g.Write(node, nodeName)
+		g.NewNode(nodeName, *count, nil, nil)
 		*count++
 	}
 
@@ -204,8 +236,7 @@ func (g *Graph) XiGraph(index, inst int, graph string, count *int) {
 	for i := 0; i < int(1<<uint(index)); i++ {
 		// "SI" for sinks
 		nodeName := fmt.Sprintf(nodeBase, curGraph, SI, i)
-		node := g.GetNode("", *count, nil, nil)
-		g.Write(node, nodeName)
+		g.NewNode(nodeName, *count, nil, nil)
 		*count++
 	}
 
@@ -217,8 +248,9 @@ func (g *Graph) XiGraph(index, inst int, graph string, count *int) {
 		nodeName := fmt.Sprintf(nodeBase, butterfly0, 0, i)
 		parent0 := fmt.Sprintf(nodeBase, curGraph, SO, i)
 		parent1 := fmt.Sprintf(nodeBase, curGraph, SO, i+offset)
-		node := g.GetNode(nodeName, -1, nil, []string{parent0, parent1})
-		g.Write(node, nodeName)
+		node := g.GetNode(nodeName)
+		node.UpdateParents([]string{parent0, parent1})
+		g.WriteNode(node, nodeName)
 	}
 
 	// sinks of first butterfly to sources of first xi graph
@@ -227,8 +259,9 @@ func (g *Graph) XiGraph(index, inst int, graph string, count *int) {
 		nodeName := fmt.Sprintf(nodeBase, xi0, SO, i)
 		// index is the last level; i.e., sinks
 		parent := fmt.Sprintf(nodeBase, butterfly0, 2*(index-1)-1, i)
-		node := g.GetNode(nodeName, -1, nil, []string{parent})
-		g.Write(node, nodeName)
+		node := g.GetNode(nodeName)
+		node.UpdateParents([]string{parent})
+		g.WriteNode(node, nodeName)
 	}
 
 	// sinks of first xi to sources of second xi
@@ -239,8 +272,9 @@ func (g *Graph) XiGraph(index, inst int, graph string, count *int) {
 		if index-1 == 0 {
 			parent = fmt.Sprintf(nodeBase, xi0, SO, i)
 		}
-		node := g.GetNode(nodeName, -1, nil, []string{parent})
-		g.Write(node, nodeName)
+		node := g.GetNode(nodeName)
+		node.UpdateParents([]string{parent})
+		g.WriteNode(node, nodeName)
 	}
 
 	// sinks of second xi to sources of second butterfly
@@ -248,8 +282,9 @@ func (g *Graph) XiGraph(index, inst int, graph string, count *int) {
 	for i := 0; i < offset; i++ {
 		nodeName := fmt.Sprintf(nodeBase, butterfly1, 0, i)
 		parent := fmt.Sprintf(nodeBase, xi1, SI, i)
-		node := g.GetNode(nodeName, -1, nil, []string{parent})
-		g.Write(node, nodeName)
+		node := g.GetNode(nodeName)
+		node.UpdateParents([]string{parent})
+		g.WriteNode(node, nodeName)
 	}
 
 	// sinks of second butterfly to sinks
@@ -257,18 +292,21 @@ func (g *Graph) XiGraph(index, inst int, graph string, count *int) {
 		nodeName0 := fmt.Sprintf(nodeBase, curGraph, SI, i)
 		nodeName1 := fmt.Sprintf(nodeBase, curGraph, SI, i+offset)
 		parent := fmt.Sprintf(nodeBase, butterfly1, 2*(index-1)-1, i)
-		node0 := g.GetNode(nodeName0, -1, nil, []string{parent})
-		node1 := g.GetNode(nodeName1, -1, nil, []string{parent})
-		g.Write(node0, nodeName0)
-		g.Write(node1, nodeName1)
+		node0 := g.GetNode(nodeName0)
+		node0.UpdateParents([]string{parent})
+		node1 := g.GetNode(nodeName1)
+		node1.UpdateParents([]string{parent})
+		g.WriteNode(node0, nodeName0)
+		g.WriteNode(node1, nodeName1)
 	}
 
 	// sources to sinks directly
 	for i := 0; i < int(1<<uint(index)); i++ {
 		nodeName := fmt.Sprintf(nodeBase, curGraph, SI, i)
 		parent := fmt.Sprintf(nodeBase, curGraph, SO, i)
-		node := g.GetNode(nodeName, -1, nil, []string{parent})
-		g.Write(node, nodeName)
+		node := g.GetNode(nodeName)
+		node.UpdateParents([]string{parent})
+		g.WriteNode(node, nodeName)
 	}
 
 	err := g.s.Flush()

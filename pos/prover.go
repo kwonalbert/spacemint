@@ -7,7 +7,6 @@ import (
 	"golang.org/x/crypto/sha3"
 	"os"
 	"runtime/pprof"
-	"strconv"
 )
 
 type Prover struct {
@@ -52,13 +51,13 @@ func NewProver(pk []byte, index int, name, graph string) *Prover {
 	return &p
 }
 
-func (p *Prover) computeHash(nodeName string) []byte {
-	n := p.graph.GetNode(nodeName)
+func (p *Prover) computeHash(id int) []byte {
+	n := p.graph.GetNode(id)
 	if n.H != nil { // hash has been computed before
 		return n.H
 	} else {
 		buf := make([]byte, hashSize)
-		binary.PutVarint(buf, int64(n.I))
+		binary.PutVarint(buf, int64(id))
 		val := append(p.pk, buf...)
 		var hash [hashSize]byte
 
@@ -73,18 +72,17 @@ func (p *Prover) computeHash(nodeName string) []byte {
 			hash = sha3.Sum256(hashes)
 		}
 		n.H = hash[:]
-		p.graph.WriteNode(n, nodeName)
+		p.graph.WriteNode(n, id)
 		return hash[:]
 	}
 }
 
 // Computes all the hashes of the vertices
 func (p *Prover) Init() *Commitment {
-	curGraph := GraphName(p.name, posName, p.index, "0")
+	sinks := numXi(p.index) - (1 << uint(p.index))
 
-	for i := 0; i < (1 << uint(p.index)); i++ {
-		nodeFile := NodeName(curGraph, SI, i)
-		p.computeHash(nodeFile)
+	for i := sinks; i < numXi(p.index); i++ {
+		p.computeHash(i)
 	}
 
 	return p.Commit()
@@ -95,31 +93,20 @@ func (p *Prover) Init() *Commitment {
 // return: hash at node i
 func (p *Prover) generateMerkle(node int) []byte {
 	if node >= p.pow2 { // real vertices
-		nodeName := IndexToNode(node-p.pow2, p.index, "0", p.name)
-		n := p.graph.GetNode(nodeName)
+		n := p.graph.GetNode(node - p.pow2)
 		if n == nil {
 			return make([]byte, hashSize)
 		} else {
 			return n.H
 		}
 	} else {
-		// hc1 := make(chan []byte)
-		// hc2 := make(chan []byte)
-		// go func() {
-		// 	hc1 <- p.generateMerkle(node * 2)
-		// }()
-		// go func() {
-		// 	hc2 <- p.generateMerkle(node*2 + 1)
-		// }()
-
 		hash1 := p.generateMerkle(node * 2)
 		hash2 := p.generateMerkle(node*2 + 1)
 		val := append(hash1[:], hash2[:]...)
 		val = append(p.pk, val...)
 		hash := sha3.Sum256(val)
 
-		nodeName := strconv.Itoa(node)
-		p.graph.NewNode(nodeName, -1, hash[:], nil)
+		p.graph.NewNode(-1*node, hash[:], nil)
 
 		return hash[:]
 	}
@@ -153,8 +140,7 @@ func (p *Prover) Commit() *Commitment {
 // return: hash of node, and the lgN hashes to verify node
 func (p *Prover) Open(node int) ([]byte, [][]byte) {
 	var hash []byte
-	nodeName := IndexToNode(node, p.index, "0", p.name)
-	n := p.graph.GetNode(nodeName)
+	n := p.graph.GetNode(node)
 	if n != nil {
 		hash = n.H
 	} else {
@@ -174,11 +160,11 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 
 		proof[count] = make([]byte, hashSize)
 		if sib >= p.pow2 {
-			nodeName = IndexToNode(sib-p.pow2, p.index, "0", p.name)
+			node = sib - p.pow2
 		} else {
-			nodeName = strconv.Itoa(sib)
+			node = -1 * sib
 		}
-		n := p.graph.GetNode(nodeName)
+		n := p.graph.GetNode(node)
 		if n != nil {
 			proof[count] = n.H
 		}

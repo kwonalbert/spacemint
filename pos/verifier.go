@@ -45,7 +45,7 @@ func (v *Verifier) SelectChallenges(seed []byte) []int {
 	rands := make([]byte, v.beta*8)
 	sha3.ShakeSum256(rands, seed) //PRNG
 	for i := range challenges {
-		buf := bytes.NewBuffer(rands[i*8 : (i+1)*8-1])
+		buf := bytes.NewBuffer(rands[i*8 : (i+1)*8])
 		val, err := binary.ReadVarint(buf)
 		if err != nil {
 			panic(err)

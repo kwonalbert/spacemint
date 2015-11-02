@@ -2,23 +2,12 @@ package pos
 
 import (
 	"bytes"
-	"encoding/gob"
-	"encoding/json"
+	"encoding/binary"
 	//"fmt"
-	"github.com/kwonalbert/spacecoin/util"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"os"
 	"runtime/pprof"
-	"strconv"
-)
-
-var graphBase string = "%s.%s%d-%d"
-var nodeBase string = "%s.%d-%d"
-
-const (
-	SO = 0
-	SI = 1
 )
 
 type Graph struct {
@@ -27,33 +16,46 @@ type Graph struct {
 }
 
 type Node struct {
-	I  int      // node id
-	H  []byte   // hash at the file
-	Ps []string // parent node files
-}
-
-func MarshalNode(n *Node) ([]byte, error) {
-	buf := new(bytes.Buffer)
-	enc := gob.NewEncoder(buf)
-	err := enc.Encode(n)
-	return buf.Bytes(), err
-}
-
-func UnmarshalNode(n *Node, data []byte) {
-	buf := bytes.NewBuffer(data)
-	dec := gob.NewDecoder(buf)
-	dec.Decode(n)
+	H  []byte // hash at the file
+	Ps []int  // parent node files
 }
 
 func (n *Node) MarshalBinary() ([]byte, error) {
-	return json.Marshal(n)
+	buf := new(bytes.Buffer)
+	_, err := buf.Write(n.H)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range n.Ps {
+		b := make([]byte, 8)
+		binary.PutVarint(b, int64(p))
+		_, err = buf.Write(b)
+		if err != nil {
+			return nil, nil
+		}
+	}
+	return buf.Bytes(), nil
 }
 
 func (n *Node) UnmarshalBinary(data []byte) error {
-	return json.Unmarshal(data, n)
+	buf := bytes.NewBuffer(data)
+	n.H = make([]byte, hashSize)
+	n.Ps = make([]int, (len(data)-hashSize)/8)
+	_, err := buf.Read(n.H)
+	if err != nil {
+		return err
+	}
+	for i := range n.Ps {
+		parent, err := binary.ReadVarint(buf)
+		if err != nil {
+			return err
+		}
+		n.Ps[i] = int(parent)
+	}
+	return nil
 }
 
-func (n *Node) UpdateParents(parents []string) {
+func (n *Node) UpdateParents(parents []int) {
 	n.Ps = append(n.Ps, parents...)
 }
 
@@ -69,7 +71,12 @@ func NewGraph(index int, name, fn string) *Graph {
 	// recursively generate graphs
 	count := 0
 
-	db, err := leveldb.OpenFile(fn, nil)
+	opt := &opt.Options{
+		WriteBuffer:        512 * opt.MiB,
+		BlockCacheCapacity: 512 * opt.MiB,
+	}
+
+	db, err := leveldb.OpenFile(fn, opt)
 	if err != nil {
 		panic(err)
 	}
@@ -79,48 +86,33 @@ func NewGraph(index int, name, fn string) *Graph {
 		db: db,
 	}
 
-	opt := &opt.Options{
-		WriteBuffer:        512 * opt.MiB,
-		BlockCacheCapacity: 512 * opt.MiB,
-	}
-
-	g.XiGraph(index, "0", name, &count)
+	g.XiGraph(index, &count)
 
 	return g
 }
 
-func (g *Graph) NewNode(nodeName string, id int, hash []byte, ps []string) {
+func (g *Graph) NewNode(id int, hash []byte, ps []int) {
 	node := &Node{
-		I:  id,
 		H:  hash,
 		Ps: ps,
 	}
 
-	g.WriteNode(node, nodeName)
-}
-
-func GraphName(graph, name string, index int, inst string) string {
-	return util.ConcatStr(graph, ".", name,
-		strconv.Itoa(index), "-", inst)
-}
-
-func NodeName(graphName string, id1, id2 int) string {
-	return util.ConcatStr(graphName, ".",
-		strconv.Itoa(id1), "-", strconv.Itoa(id2))
+	g.WriteNode(node, id)
 }
 
 // Gets the node, and update the node.
 // Otherwise, create a node
-func (g *Graph) GetNode(nodeName string) *Node {
+func (g *Graph) GetNode(id int) *Node {
 	node := new(Node)
-	data, err := g.db.Get([]byte(nodeName), nil)
+	key := make([]byte, 8)
+	binary.PutVarint(key, int64(id))
+	data, err := g.db.Get(key, nil)
 	if err == leveldb.ErrNotFound {
 		return nil
 	} else if err != nil {
 		panic(err)
 	}
 	if data != nil {
-		//UnmarshalNode(node, data)
 		node.UnmarshalBinary(data)
 		return node
 	} else {
@@ -128,13 +120,14 @@ func (g *Graph) GetNode(nodeName string) *Node {
 	}
 }
 
-func (g *Graph) WriteNode(n *Node, nodeName string) {
-	//b, err := MarshalNode(n)
+func (g *Graph) WriteNode(n *Node, id int) {
 	b, err := n.MarshalBinary()
 	if err != nil {
 		panic(err)
 	}
-	err = g.db.Put([]byte(nodeName), b, nil)
+	key := make([]byte, 8)
+	binary.PutVarint(key, int64(id))
+	err = g.db.Put(key, b, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -152,54 +145,15 @@ func numButterfly(index int) int {
 	return 2 * (1 << uint(index)) * index
 }
 
-// Maps a node index (0 to O(2^N)) to a folder (a physical node)
-func IndexToNode(node, index int, inst, name string) string {
-	sources := 1 << uint(index)
-	firstButter := sources + numButterfly(index-1)
-	firstXi := firstButter + numXi(index-1)
-	secondXi := firstXi + numXi(index-1)
-	secondButter := secondXi + numButterfly(index-1)
-	sinks := secondButter + sources
-
-	curGraph := GraphName(name, posName, index, inst)
-
-	if node < sources {
-		return NodeName(curGraph, SO, node)
-	} else if node >= sources && node < firstButter {
-		node = node - sources
-		butterfly0 := GraphName(curGraph, "C", index-1, "0")
-		level := node / (1 << uint(index-1))
-		nodeNum := node % (1 << uint(index-1))
-		return NodeName(butterfly0, level, nodeNum)
-	} else if node >= firstButter && node < firstXi {
-		node = node - firstButter
-		return IndexToNode(node, index-1, "0", curGraph)
-	} else if node >= firstXi && node < secondXi {
-		node = node - firstXi
-		return IndexToNode(node, index-1, "1", curGraph)
-	} else if node >= secondXi && node < secondButter {
-		node = node - secondXi
-		butterfly1 := GraphName(curGraph, "C", index-1, "1")
-		level := node / (1 << uint(index-1))
-		nodeNum := node % (1 << uint(index-1))
-		return NodeName(butterfly1, level, nodeNum)
-	} else if node >= secondButter && node < sinks {
-		node = node - secondButter
-		return NodeName(curGraph, SI, node)
-	} else {
-		return ""
-	}
-}
-
-func (g *Graph) ButterflyGraph(index int, inst, name, graph string, count *int) {
-	curGraph := GraphName(graph, name, index, inst)
+func (g *Graph) ButterflyGraph(index int, count *int) {
+	begin := *count
 	numLevel := 2 * index
+	perLevel := int(1 << uint(index))
 	for level := 0; level < numLevel; level++ {
-		for i := 0; i < int(1<<uint(index)); i++ {
+		for i := 0; i < perLevel; i++ {
 			// no parents at level 0
-			nodeName := NodeName(curGraph, level, i)
 			if level == 0 {
-				g.NewNode(nodeName, *count, nil, nil)
+				g.NewNode(*count, make([]byte, hashSize), nil)
 				*count++
 				continue
 			}
@@ -213,109 +167,108 @@ func (g *Graph) ButterflyGraph(index int, inst, name, graph string, count *int) 
 			} else {
 				prev = i - (1 << uint(shift))
 			}
-			parent1 := NodeName(curGraph, level-1, prev)
-			parent2 := NodeName(curGraph, level-1, i)
+			parent1 := begin + (level-1)*perLevel + prev
+			parent2 := *count - perLevel
 
-			parents := []string{parent1, parent2}
-			g.NewNode(nodeName, *count, nil, parents)
+			parents := []int{parent1, parent2}
+			g.NewNode(*count, make([]byte, hashSize), parents)
 			*count++
 		}
 	}
 }
 
-func (g *Graph) XiGraph(index int, inst, graph string, count *int) {
+func (g *Graph) XiGraph(index int, count *int) {
 	if index == 1 {
-		g.ButterflyGraph(index, inst, posName, graph, count)
+		g.ButterflyGraph(index, count)
 		return
 	}
-	curGraph := GraphName(graph, posName, index, inst)
 
-	for i := 0; i < int(1<<uint(index)); i++ {
+	pow2index := 1 << uint(index)
+	sources := *count
+	firstButter := sources + pow2index
+	firstXi := firstButter + numButterfly(index-1)
+	secondXi := firstXi + numXi(index-1)
+	secondButter := secondXi + numXi(index-1)
+	sinks := secondButter + numButterfly(index-1)
+
+	//graph generation
+	for i := 0; i < pow2index; i++ {
 		// "SO" for sources
-		nodeName := NodeName(curGraph, SO, i)
-		g.NewNode(nodeName, *count, nil, nil)
+		g.NewNode(*count, make([]byte, hashSize), nil)
 		*count++
 	}
 
 	// recursively generate graphs
-	g.ButterflyGraph(index-1, "0", "C", curGraph, count)
-	g.XiGraph(index-1, "0", curGraph, count)
-	g.XiGraph(index-1, "1", curGraph, count)
-	g.ButterflyGraph(index-1, "1", "C", curGraph, count)
+	g.ButterflyGraph(index-1, count)
+	g.XiGraph(index-1, count)
+	g.XiGraph(index-1, count)
+	g.ButterflyGraph(index-1, count)
 
-	for i := 0; i < int(1<<uint(index)); i++ {
+	for i := 0; i < pow2index; i++ {
 		// "SI" for sinks
-		nodeName := NodeName(curGraph, SI, i)
-		g.NewNode(nodeName, *count, nil, nil)
+		g.NewNode(*count, make([]byte, hashSize), nil)
 		*count++
 	}
 
-	offset := int(1 << uint(index-1)) //2^(index-1)
+	pow2index_1 := int(1 << uint(index-1))
 
 	// sources to sources of first butterfly
-	butterfly0 := GraphName(curGraph, "C", index-1, "0")
-	for i := 0; i < offset; i++ {
-		nodeName := NodeName(butterfly0, 0, i)
-		parent0 := NodeName(curGraph, SO, i)
-		parent1 := NodeName(curGraph, SO, i+offset)
-		node := g.GetNode(nodeName)
-		node.UpdateParents([]string{parent0, parent1})
-		g.WriteNode(node, nodeName)
+	for i := 0; i < pow2index_1; i++ {
+		nodeId := firstButter + i
+		parent0 := sources + i
+		parent1 := sources + i + pow2index_1
+		node := g.GetNode(nodeId)
+		node.UpdateParents([]int{parent0, parent1})
+		g.WriteNode(node, nodeId)
 	}
 
 	// sinks of first butterfly to sources of first xi graph
-	xi0 := GraphName(curGraph, posName, index-1, "0")
-	for i := 0; i < offset; i++ {
-		nodeName := NodeName(xi0, SO, i)
+	for i := 0; i < pow2index_1; i++ {
+		nodeId := firstXi + i
 		// index is the last level; i.e., sinks
-		parent := NodeName(butterfly0, 2*(index-1)-1, i)
-		node := g.GetNode(nodeName)
-		node.UpdateParents([]string{parent})
-		g.WriteNode(node, nodeName)
+		parent := firstButter - pow2index_1 + i
+		node := g.GetNode(nodeId)
+		node.UpdateParents([]int{parent})
+		g.WriteNode(node, nodeId)
 	}
 
 	// sinks of first xi to sources of second xi
-	xi1 := GraphName(curGraph, posName, index-1, "1")
-	for i := 0; i < offset; i++ {
-		nodeName := NodeName(xi1, SO, i)
-		parent := NodeName(xi0, SI, i)
-		if index-1 == 0 {
-			parent = NodeName(xi0, SO, i)
-		}
-		node := g.GetNode(nodeName)
-		node.UpdateParents([]string{parent})
-		g.WriteNode(node, nodeName)
+	for i := 0; i < pow2index_1; i++ {
+		nodeId := secondXi + i
+		parent := secondXi - pow2index_1 + i
+		node := g.GetNode(nodeId)
+		node.UpdateParents([]int{parent})
+		g.WriteNode(node, nodeId)
 	}
 
 	// sinks of second xi to sources of second butterfly
-	butterfly1 := GraphName(curGraph, "C", index-1, "1")
-	for i := 0; i < offset; i++ {
-		nodeName := NodeName(butterfly1, 0, i)
-		parent := NodeName(xi1, SI, i)
-		node := g.GetNode(nodeName)
-		node.UpdateParents([]string{parent})
-		g.WriteNode(node, nodeName)
+	for i := 0; i < pow2index_1; i++ {
+		nodeId := secondButter + i
+		parent := secondButter - pow2index_1 + i
+		node := g.GetNode(nodeId)
+		node.UpdateParents([]int{parent})
+		g.WriteNode(node, nodeId)
 	}
 
 	// sinks of second butterfly to sinks
-	for i := 0; i < offset; i++ {
-		nodeName0 := NodeName(curGraph, SI, i)
-		nodeName1 := NodeName(curGraph, SI, i+offset)
-		parent := NodeName(butterfly1, 2*(index-1)-1, i)
-		node0 := g.GetNode(nodeName0)
-		node0.UpdateParents([]string{parent})
-		node1 := g.GetNode(nodeName1)
-		node1.UpdateParents([]string{parent})
-		g.WriteNode(node0, nodeName0)
-		g.WriteNode(node1, nodeName1)
+	for i := 0; i < pow2index_1; i++ {
+		nodeId0 := sinks + i
+		nodeId1 := sinks + i + pow2index_1
+		parent := sinks - pow2index_1 + i
+		node0 := g.GetNode(nodeId0)
+		node0.UpdateParents([]int{parent})
+		node1 := g.GetNode(nodeId1)
+		node1.UpdateParents([]int{parent})
+		g.WriteNode(node0, nodeId0)
+		g.WriteNode(node1, nodeId1)
 	}
 
 	// sources to sinks directly
 	for i := 0; i < int(1<<uint(index)); i++ {
-		nodeName := NodeName(curGraph, SI, i)
-		parent := NodeName(curGraph, SO, i)
-		node := g.GetNode(nodeName)
-		node.UpdateParents([]string{parent})
-		g.WriteNode(node, nodeName)
+		nodeId := sinks + i
+		parent := sources + i
+		node := g.GetNode(nodeId)
+		node.UpdateParents([]int{parent})
+		g.WriteNode(node, nodeId)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -16,7 +17,7 @@ var pk []byte
 var index int = 10
 var size int = 0
 var beta int = 10
-var graphDir string = "/tmp/Xi"
+var graphDir string = "Xi"
 var name string = "G"
 
 func TestEmpty(t *testing.T) {
@@ -107,7 +108,9 @@ func TestMain(m *testing.M) {
 	size = numXi(index)
 	pk = []byte{1}
 
-	os.Remove(graphDir)
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	os.RemoveAll(graphDir)
 
 	now := time.Now()
 	prover = NewProver(pk, index, name, graphDir)

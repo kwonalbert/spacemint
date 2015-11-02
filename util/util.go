@@ -1,6 +1,7 @@
 package util
 
 import (
+	"bytes"
 	"math/big"
 )
 
@@ -62,4 +63,12 @@ func Concat(ls [][]byte) []byte {
 		res = append(res, ls[i]...)
 	}
 	return res
+}
+
+func ConcatStr(ss ...string) string {
+	buf := new(bytes.Buffer)
+	for i := range ss {
+		buf.WriteString(ss[i])
+	}
+	return buf.String()
 }

@@ -71,10 +71,6 @@ func (p *Prover) computeHash(nodeName string) []byte {
 		}
 		n.H = hash[:]
 		p.graph.WriteNode(n, nodeName)
-		err := p.graph.s.Flush()
-		if err != nil {
-			panic(err)
-		}
 		return hash[:]
 	}
 }
@@ -124,10 +120,6 @@ func (p *Prover) Commit() *Commitment {
 	// build the merkle tree in depth first fashion
 	// root node is 1
 	root := p.generateMerkle(1)
-	err := p.graph.s.Flush()
-	if err != nil {
-		panic(err)
-	}
 	p.commit = root
 
 	commit := &Commitment{

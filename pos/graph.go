@@ -3,9 +3,8 @@ package pos
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/steveyen/gkvlite"
+	"github.com/boltdb/bolt"
 	//"runtime/pprof"
-	"os"
 )
 
 var graphBase string = "%s.%s%d-%d"
@@ -18,8 +17,7 @@ const (
 
 type Graph struct {
 	fn string
-	s  *gkvlite.Store
-	c  *gkvlite.Collection
+	db *bolt.DB
 }
 
 type Node struct {
@@ -51,26 +49,25 @@ func NewGraph(index int, name, fn string) *Graph {
 	// recursively generate graphs
 	count := 0
 
-	f, err := os.Create(fn)
-
-	s, err := gkvlite.NewStore(f)
+	db, err := bolt.Open(fn, 0600, nil)
 	if err != nil {
 		panic(err)
 	}
-	c := s.SetCollection("nodes", nil)
+
+	db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucket([]byte("nodes"))
+		if err != nil {
+			panic(err)
+		}
+		return nil
+	})
 
 	g := &Graph{
 		fn: fn,
-		s:  s,
-		c:  c,
+		db: db,
 	}
 
 	g.XiGraph(index, 0, name, &count)
-
-	s.Flush()
-	f.Sync()
-
-	g.Compact()
 
 	return g
 }
@@ -83,20 +80,18 @@ func (g *Graph) NewNode(nodeName string, id int, hash []byte, ps []string) {
 	}
 
 	g.WriteNode(node, nodeName)
-	err := g.s.Flush()
-	if err != nil {
-		panic(err)
-	}
 }
 
 // Gets the node, and update the node.
 // Otherwise, create a node
 func (g *Graph) GetNode(nodeName string) *Node {
 	node := new(Node)
-	val, err := g.c.Get([]byte(nodeName))
-	if err != nil {
-		panic(err)
-	}
+	var val []byte
+	g.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("nodes"))
+		val = b.Get([]byte(nodeName))
+		return nil
+	})
 	if val != nil {
 		node.UnmarshalBinary(val)
 		return node
@@ -110,21 +105,15 @@ func (g *Graph) WriteNode(n *Node, nodeName string) {
 	if err != nil {
 		panic(err)
 	}
-	g.c.Set([]byte(nodeName), b)
+	g.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("nodes"))
+		err := bucket.Put([]byte(nodeName), []byte(b))
+		return err
+	})
 }
 
-func (g *Graph) Compact() {
-	newFn := fmt.Sprintf("%s_", g.fn)
-	f, err := os.Create(newFn)
-	if err != nil {
-		panic(err)
-	}
-	newS, err := g.s.CopyTo(f, 8388608) //hold up to gig in mem
-	if err != nil {
-		panic(err)
-	}
-	g.s = newS
-	g.c = newS.GetCollection("nodes")
+func (g *Graph) Close() {
+	g.db.Close()
 }
 
 func numXi(index int) int {
@@ -205,11 +194,6 @@ func (g *Graph) ButterflyGraph(index, inst int, name, graph string, count *int) 
 			g.NewNode(nodeName, *count, nil, parents)
 			*count++
 		}
-	}
-
-	err := g.s.Flush()
-	if err != nil {
-		panic(err)
 	}
 }
 
@@ -307,10 +291,5 @@ func (g *Graph) XiGraph(index, inst int, graph string, count *int) {
 		node := g.GetNode(nodeName)
 		node.UpdateParents([]string{parent})
 		g.WriteNode(node, nodeName)
-	}
-
-	err := g.s.Flush()
-	if err != nil {
-		panic(err)
 	}
 }

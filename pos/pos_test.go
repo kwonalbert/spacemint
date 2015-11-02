@@ -13,7 +13,7 @@ import (
 var prover *Prover = nil
 var verifier *Verifier = nil
 var pk []byte
-var index int = 3
+var index int = 10
 var size int = 0
 var beta int = 10
 var graphDir string = "/tmp/Xi"
@@ -106,6 +106,8 @@ func TestOpenVerify(t *testing.T) {
 func TestMain(m *testing.M) {
 	size = numXi(index)
 	pk = []byte{1}
+
+	os.Remove(graphDir)
 
 	now := time.Now()
 	prover = NewProver(pk, index, name, graphDir)

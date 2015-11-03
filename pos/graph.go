@@ -3,16 +3,19 @@ package pos
 import (
 	"bytes"
 	"encoding/binary"
-	//"fmt"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/opt"
+	"fmt"
 	"os"
 	"runtime/pprof"
 )
 
+const nodeSize = hashSize + 2*8 + 1
+
 type Graph struct {
-	fn string
-	db *leveldb.DB
+	fn     string
+	db     *os.File
+	merkle *os.File
+	pow2   int
+	size   int
 }
 
 type Node struct {
@@ -21,11 +24,24 @@ type Node struct {
 }
 
 func (n *Node) MarshalBinary() ([]byte, error) {
+	var h byte
+	if n.H == nil {
+		n.H = make([]byte, hashSize)
+		h = 0
+	} else {
+		h = 1
+	}
+
 	buf := new(bytes.Buffer)
-	_, err := buf.Write(n.H)
-	if err != nil {
+	num, err := buf.Write(n.H)
+	if err != nil || num != len(n.H) {
 		return nil, err
 	}
+
+	for len(n.Ps) != 2 {
+		n.Ps = append(n.Ps, -1)
+	}
+
 	for _, p := range n.Ps {
 		b := make([]byte, 8)
 		binary.PutVarint(b, int64(p))
@@ -34,24 +50,29 @@ func (n *Node) MarshalBinary() ([]byte, error) {
 			return nil, nil
 		}
 	}
-	return buf.Bytes(), nil
+	return append(buf.Bytes(), h), nil
 }
 
 func (n *Node) UnmarshalBinary(data []byte) error {
-	buf := bytes.NewBuffer(data)
-	n.H = make([]byte, hashSize)
-	n.Ps = make([]int, (len(data)-hashSize)/8)
-	_, err := buf.Read(n.H)
-	if err != nil {
-		return err
+	n.H = data[:hashSize]
+	n.Ps = make([]int, 2)
+	if data[len(data)-1] == 0 {
+		n.H = nil
 	}
+	count := 0
 	for i := range n.Ps {
-		parent, err := binary.ReadVarint(buf)
-		if err != nil {
-			return err
+		start := hashSize + i*8
+		end := hashSize + (i+1)*8
+		parent, num := binary.Varint(data[start:end])
+		if num < 0 {
+			panic("couldn't read a parent")
 		}
-		n.Ps[i] = int(parent)
+		if parent != -1 {
+			n.Ps[count] = int(parent)
+			count++
+		}
 	}
+	n.Ps = n.Ps[:count]
 	return nil
 }
 
@@ -62,7 +83,7 @@ func (n *Node) UpdateParents(parents []int) {
 // Generate a new PoS graph of index
 // Currently only supports the weaker PoS graph
 // Note that this graph will have O(2^index) nodes
-func NewGraph(index int, name, fn string) *Graph {
+func NewGraph(index, size, pow2 int, name, fn string) *Graph {
 	cpuprofile := "graph.prof"
 	f, _ := os.Create(cpuprofile)
 	pprof.StartCPUProfile(f)
@@ -71,19 +92,22 @@ func NewGraph(index int, name, fn string) *Graph {
 	// recursively generate graphs
 	count := 0
 
-	opt := &opt.Options{
-		WriteBuffer:        512 * opt.MiB,
-		BlockCacheCapacity: 512 * opt.MiB,
+	db, err := os.Create(fn)
+	if err != nil {
+		panic(err)
 	}
 
-	db, err := leveldb.OpenFile(fn, opt)
+	merkle, err := os.Create(fmt.Sprintf("%s-merkle", fn))
 	if err != nil {
 		panic(err)
 	}
 
 	g := &Graph{
-		fn: fn,
-		db: db,
+		fn:     fn,
+		db:     db,
+		merkle: merkle,
+		size:   size,
+		pow2:   pow2,
 	}
 
 	g.XiGraph(index, &count)
@@ -92,49 +116,63 @@ func NewGraph(index int, name, fn string) *Graph {
 }
 
 func (g *Graph) NewNode(id int, hash []byte, ps []int) {
-	node := &Node{
-		H:  hash,
-		Ps: ps,
+	if id >= 0 {
+		node := &Node{
+			H:  hash,
+			Ps: ps,
+		}
+		g.WriteNode(node, id)
+	} else {
+		num, err := g.merkle.WriteAt(hash, int64(-id)*hashSize)
+		if err != nil || num != hashSize {
+			panic(err)
+		}
 	}
-
-	g.WriteNode(node, id)
 }
 
 // Gets the node, and update the node.
 // Otherwise, create a node
 func (g *Graph) GetNode(id int) *Node {
 	node := new(Node)
-	key := make([]byte, 8)
-	binary.PutVarint(key, int64(id))
-	data, err := g.db.Get(key, nil)
-	if err == leveldb.ErrNotFound {
+	if id >= g.size {
 		return nil
-	} else if err != nil {
-		panic(err)
-	}
-	if data != nil {
-		node.UnmarshalBinary(data)
-		return node
+	} else if id >= 0 {
+		data := make([]byte, nodeSize)
+		num, err := g.db.ReadAt(data, int64(id)*nodeSize)
+		if err != nil || num != nodeSize {
+			panic(err)
+		}
+		if data != nil {
+			node.UnmarshalBinary(data)
+			return node
+		} else {
+			return nil
+		}
 	} else {
-		return nil
+		hash := make([]byte, hashSize)
+		num, err := g.merkle.ReadAt(hash, int64(-id)*hashSize)
+		if err != nil || num != hashSize {
+			panic(err)
+		}
+		node.H = hash
+		return node
 	}
 }
 
-func (g *Graph) WriteNode(n *Node, id int) {
-	b, err := n.MarshalBinary()
+func (g *Graph) WriteNode(node *Node, id int) {
+	b, err := node.MarshalBinary()
 	if err != nil {
 		panic(err)
 	}
-	key := make([]byte, 8)
-	binary.PutVarint(key, int64(id))
-	err = g.db.Put(key, b, nil)
-	if err != nil {
+	num, err := g.db.WriteAt(b, int64(id)*nodeSize)
+	if err != nil || num != nodeSize {
 		panic(err)
 	}
 }
 
 func (g *Graph) Close() {
 	g.db.Close()
+	g.merkle.Close()
 }
 
 func numXi(index int) int {
@@ -153,7 +191,7 @@ func (g *Graph) ButterflyGraph(index int, count *int) {
 		for i := 0; i < perLevel; i++ {
 			// no parents at level 0
 			if level == 0 {
-				g.NewNode(*count, make([]byte, hashSize), nil)
+				g.NewNode(*count, nil, nil)
 				*count++
 				continue
 			}
@@ -171,7 +209,7 @@ func (g *Graph) ButterflyGraph(index int, count *int) {
 			parent2 := *count - perLevel
 
 			parents := []int{parent1, parent2}
-			g.NewNode(*count, make([]byte, hashSize), parents)
+			g.NewNode(*count, nil, parents)
 			*count++
 		}
 	}
@@ -194,7 +232,7 @@ func (g *Graph) XiGraph(index int, count *int) {
 	//graph generation
 	for i := 0; i < pow2index; i++ {
 		// "SO" for sources
-		g.NewNode(*count, make([]byte, hashSize), nil)
+		g.NewNode(*count, nil, nil)
 		*count++
 	}
 
@@ -206,7 +244,7 @@ func (g *Graph) XiGraph(index int, count *int) {
 
 	for i := 0; i < pow2index; i++ {
 		// "SI" for sinks
-		g.NewNode(*count, make([]byte, hashSize), nil)
+		g.NewNode(*count, nil, nil)
 		*count++
 	}
 

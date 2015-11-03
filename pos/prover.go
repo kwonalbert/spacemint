@@ -36,7 +36,7 @@ func NewProver(pk []byte, index int, name, graph string) *Prover {
 		pow2 = 1 << uint(log2)
 	}
 
-	g := NewGraph(index, name, graph)
+	g := NewGraph(index, size, pow2, name, graph)
 
 	p := Prover{
 		pk:    pk,

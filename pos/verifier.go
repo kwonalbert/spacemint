@@ -44,14 +44,11 @@ func (v *Verifier) SelectChallenges(seed []byte) []int {
 	rands := make([]byte, v.beta*8)
 	sha3.ShakeSum256(rands, seed) //PRNG
 	for i := range challenges {
-		val, num := binary.Varint(rands[i*8 : (i+1)*8])
+		val, num := binary.Uvarint(rands[i*8 : (i+1)*8])
 		if num < 0 {
 			panic("Couldn't read PRNG")
 		}
-		challenges[i] = int(val) % v.size
-		if challenges[i] < 0 {
-			challenges[i] = v.size + challenges[i]
-		}
+		challenges[i] = int(val % uint64(v.size))
 	}
 	return challenges
 }

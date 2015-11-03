@@ -1,10 +1,10 @@
 #!/bin/sh
 
-rm results.txt
+rm -f results.txt
 
 for ((i=1;i<=$1;i++));
 do
-    go test -v -run=TestEmpty -index=$i >> results.txt
-    du -hc Xi | grep total >> results.txt
+    go test -index=$i >> results.txt
+    du -hc Xi Xi-merkle | grep total >> results.txt
     echo $'\n' >> results.txt
 done

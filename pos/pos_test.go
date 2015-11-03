@@ -2,6 +2,7 @@ package pos
 
 import (
 	"crypto/rand"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -14,7 +15,7 @@ import (
 var prover *Prover = nil
 var verifier *Verifier = nil
 var pk []byte
-var index int = 10
+var index int = 15
 var size int = 0
 var beta int = 10
 var graphDir string = "Xi"
@@ -110,15 +111,19 @@ func TestMain(m *testing.M) {
 
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
+	id := flag.Int("index", 1, "graph index")
+	flag.Parse()
+	index = *id
+
 	os.RemoveAll(graphDir)
 
 	now := time.Now()
 	prover = NewProver(pk, index, name, graphDir)
-	fmt.Printf("Graph gen: %fs\n", time.Since(now).Seconds())
+	fmt.Printf("%d. Graph gen: %fs\n", index, time.Since(now).Seconds())
 
 	now = time.Now()
 	commit := prover.Init()
-	fmt.Printf("Graph commit: %fs\n", time.Since(now).Seconds())
+	fmt.Printf("%d. Graph commit: %fs\n", index, time.Since(now).Seconds())
 
 	root := commit.Commit
 	verifier = NewVerifier(pk, index, beta, root)

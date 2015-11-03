@@ -1,7 +1,6 @@
 package pos
 
 import (
-	"bytes"
 	"encoding/binary"
 	//"fmt"
 	"github.com/kwonalbert/spacecoin/util"
@@ -23,7 +22,7 @@ func NewVerifier(pk []byte, index int, beta int, root []byte) *Verifier {
 	log2 := util.Log2(size) + 1
 	pow2 := 1 << uint(log2)
 	if (1 << uint(log2-1)) == size {
-		pow2 = 1 << uint(log2)
+		pow2 = 1 << uint(log2-1)
 	}
 
 	v := Verifier{
@@ -45,10 +44,9 @@ func (v *Verifier) SelectChallenges(seed []byte) []int {
 	rands := make([]byte, v.beta*8)
 	sha3.ShakeSum256(rands, seed) //PRNG
 	for i := range challenges {
-		buf := bytes.NewBuffer(rands[i*8 : (i+1)*8])
-		val, err := binary.ReadVarint(buf)
-		if err != nil {
-			panic(err)
+		val, num := binary.Varint(rands[i*8 : (i+1)*8])
+		if num < 0 {
+			panic("Couldn't read PRNG")
 		}
 		challenges[i] = int(val) % v.size
 		if challenges[i] < 0 {

@@ -1,7 +1,6 @@
 package pos
 
 import (
-	"encoding/binary"
 	//"fmt"
 	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
@@ -36,7 +35,7 @@ func NewProver(pk []byte, index int, name, graph string) *Prover {
 		pow2 = 1 << uint(log2)
 	}
 
-	g := NewGraph(index, name, graph)
+	g := NewGraph(index, size, pow2, name, graph, pk)
 
 	p := Prover{
 		pk:    pk,
@@ -51,41 +50,29 @@ func NewProver(pk []byte, index int, name, graph string) *Prover {
 	return &p
 }
 
-func (p *Prover) computeHash(id int) []byte {
-	n := p.graph.GetNode(id)
-	if n.H != nil { // hash has been computed before
-		return n.H
-	} else {
-		buf := make([]byte, hashSize)
-		binary.PutVarint(buf, int64(id))
-		val := append(p.pk, buf...)
-		var hash [hashSize]byte
-
-		if len(n.Ps) == 0 { // source node
-			hash = sha3.Sum256(val)
-		} else {
-			var ph []byte // parent hashes
-			for _, parent := range n.Ps {
-				ph = append(ph, p.computeHash(parent)...)
-			}
-			hashes := append(val, ph...)
-			hash = sha3.Sum256(hashes)
-		}
-		n.H = hash[:]
-		p.graph.WriteNode(n, id)
-		return hash[:]
-	}
-}
-
-// Computes all the hashes of the vertices
+// Generate a merkle tree of the hashes of the vertices
+// return: root hash of the merkle tree
+//         will also write out the merkle tree
 func (p *Prover) Init() *Commitment {
-	sinks := numXi(p.index) - (1 << uint(p.index))
+	f, _ := os.Create("prover.cpu")
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
 
-	for i := sinks; i < numXi(p.index); i++ {
-		p.computeHash(i)
+	// build the merkle tree in depth first fashion
+	// root node is 1
+	root := p.generateMerkle(1)
+	p.commit = root
+
+	// f2, _ := os.Create("prover.mem")
+	// pprof.WriteHeapProfile(f2)
+	// f2.Close()
+
+	commit := &Commitment{
+		Pk:     p.pk,
+		Commit: root,
 	}
 
-	return p.Commit()
+	return commit
 }
 
 // Recursive function to generate merkle tree
@@ -106,35 +93,10 @@ func (p *Prover) generateMerkle(node int) []byte {
 		val = append(p.pk, val...)
 		hash := sha3.Sum256(val)
 
-		p.graph.NewNode(-1*node, hash[:], nil)
+		p.graph.NewNode(-1*node, hash[:])
 
 		return hash[:]
 	}
-}
-
-// Generate a merkle tree of the hashes of the vertices
-// return: root hash of the merkle tree
-//         will also write out the merkle tree
-func (p *Prover) Commit() *Commitment {
-	f, _ := os.Create("prover.cpu")
-	pprof.StartCPUProfile(f)
-	defer pprof.StopCPUProfile()
-
-	// build the merkle tree in depth first fashion
-	// root node is 1
-	root := p.generateMerkle(1)
-	p.commit = root
-
-	// f2, _ := os.Create("prover.mem")
-	// pprof.WriteHeapProfile(f2)
-	// f2.Close()
-
-	commit := &Commitment{
-		Pk:     p.pk,
-		Commit: root,
-	}
-
-	return commit
 }
 
 // return: hash of node, and the lgN hashes to verify node

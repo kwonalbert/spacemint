@@ -49,8 +49,8 @@ func Root(x *big.Float, n int) *big.Float {
 }
 
 // return: floor log base 2 of x
-func Log2(x int) int {
-	r := 0
+func Log2(x int64) int64 {
+	var r int64 = 0
 	for ; x > 1; x >>= 1 {
 		r++
 	}
@@ -71,4 +71,14 @@ func ConcatStr(ss ...string) string {
 		buf.WriteString(ss[i])
 	}
 	return buf.String()
+}
+
+//From hackers delight
+func Count(x uint64) int {
+	x = x - ((x >> 1) & 0x55555555)
+	x = (x & 0x33333333) + ((x >> 2) & 0x33333333)
+	x = (x + (x >> 4)) & 0x0F0F0F0F
+	x = x + (x >> 8)
+	x = x + (x >> 16)
+	return int(x & 0x0000003F)
 }

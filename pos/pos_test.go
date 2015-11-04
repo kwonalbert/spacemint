@@ -15,8 +15,8 @@ import (
 var prover *Prover = nil
 var verifier *Verifier = nil
 var pk []byte
-var index int = 15
-var size int = 0
+var index int64 = 15
+var size int64 = 0
 var beta int = 10
 var graphDir string = "Xi"
 var name string = "G"
@@ -38,21 +38,6 @@ func TestPoS(t *testing.T) {
 		log.Fatal("Verify space failed:", challenges)
 	}
 	fmt.Printf("Verify: %f\n", time.Since(now).Seconds())
-}
-
-func TestOpenVerify(t *testing.T) {
-	hash, proof := prover.Open(1)
-	for i := range expProof {
-		for j := range expProof[i] {
-			if expProof[i][j] != proof[i][j] {
-				log.Fatal("Open failed:", expProof[i], proof[i])
-			}
-		}
-	}
-
-	if !verifier.Verify(1, hash, proof) {
-		log.Fatal("Verify failed:", hash, proof)
-	}
 }
 
 // //Sanity check using simple graph
@@ -113,7 +98,7 @@ func TestMain(m *testing.M) {
 
 	id := flag.Int("index", 1, "graph index")
 	flag.Parse()
-	index = *id
+	index = int64(*id)
 
 	os.RemoveAll(graphDir)
 

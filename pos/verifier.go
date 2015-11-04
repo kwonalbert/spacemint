@@ -12,17 +12,17 @@ type Verifier struct {
 	beta int    // number of challenges needed
 	root []byte // root hash
 
-	index int // index of the graphy in the family
-	size  int
-	pow2  int
+	index int64 // index of the graphy in the family
+	size  int64
+	pow2  int64
 }
 
-func NewVerifier(pk []byte, index int, beta int, root []byte) *Verifier {
+func NewVerifier(pk []byte, index int64, beta int, root []byte) *Verifier {
 	size := numXi(index)
 	log2 := util.Log2(size) + 1
-	pow2 := 1 << uint(log2)
-	if (1 << uint(log2-1)) == size {
-		pow2 = 1 << uint(log2-1)
+	pow2 := int64(1 << uint64(log2))
+	if (1 << uint64(log2-1)) == size {
+		pow2 = 1 << uint64(log2-1)
 	}
 
 	v := Verifier{
@@ -39,8 +39,8 @@ func NewVerifier(pk []byte, index int, beta int, root []byte) *Verifier {
 
 //TODO: need to select based on some pseudorandomness/gamma function?
 //      Note that these challenges are different from those of cryptocurrency
-func (v *Verifier) SelectChallenges(seed []byte) []int {
-	challenges := make([]int, v.beta)
+func (v *Verifier) SelectChallenges(seed []byte) []int64 {
+	challenges := make([]int64, v.beta)
 	rands := make([]byte, v.beta*8)
 	sha3.ShakeSum256(rands, seed) //PRNG
 	for i := range challenges {
@@ -48,12 +48,12 @@ func (v *Verifier) SelectChallenges(seed []byte) []int {
 		if num < 0 {
 			panic("Couldn't read PRNG")
 		}
-		challenges[i] = int(val % uint64(v.size))
+		challenges[i] = int64(val % uint64(v.size))
 	}
 	return challenges
 }
 
-func (v *Verifier) VerifySpace(challenges []int, hashes [][]byte, proofs [][][]byte) bool {
+func (v *Verifier) VerifySpace(challenges []int64, hashes [][]byte, proofs [][][]byte) bool {
 	for i := range challenges {
 		if !v.Verify(challenges[i], hashes[i], proofs[i]) {
 			return false
@@ -62,7 +62,7 @@ func (v *Verifier) VerifySpace(challenges []int, hashes [][]byte, proofs [][][]b
 	return true
 }
 
-func (v *Verifier) Verify(node int, hash []byte, proof [][]byte) bool {
+func (v *Verifier) Verify(node int64, hash []byte, proof [][]byte) bool {
 	curHash := hash
 	counter := 0
 	for i := node + v.pow2; i > 1; i /= 2 {

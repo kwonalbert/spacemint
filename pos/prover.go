@@ -15,10 +15,11 @@ type Prover struct {
 
 	commit []byte // root hash of the merkle tree
 
-	index int // index of the graphy in the family; power of 2
-	size  int // size of the graph
-	pow2  int // next closest power of 2
-	log2  int // next closest log
+	index int64 // index of the graphy in the family; power of 2
+	size  int64 // size of the graph
+	pow2  int64 // next closest power of 2
+	log2  int64 // next closest log
+	empty map[int64]bool
 }
 
 type Commitment struct {
@@ -26,16 +27,22 @@ type Commitment struct {
 	Commit []byte
 }
 
-func NewProver(pk []byte, index int, name, graph string) *Prover {
+func NewProver(pk []byte, index int64, name, graph string) *Prover {
 	size := numXi(index)
 	log2 := util.Log2(size) + 1
-	pow2 := 1 << uint(log2)
-	if (1 << uint(log2-1)) == size {
+	pow2 := int64(1 << uint64(log2))
+	if (1 << uint64(log2-1)) == size {
 		log2--
-		pow2 = 1 << uint(log2)
+		pow2 = 1 << uint64(log2)
 	}
 
 	g := NewGraph(index, size, pow2, name, graph, pk)
+
+	empty := make(map[int64]bool)
+
+	for i := size; util.Count(uint64(i+1)) == 0; i /= 2 {
+		empty[i+1] = true
+	}
 
 	p := Prover{
 		pk:    pk,
@@ -46,6 +53,7 @@ func NewProver(pk []byte, index int, name, graph string) *Prover {
 		size:  size,
 		pow2:  pow2,
 		log2:  log2,
+		empty: empty,
 	}
 	return &p
 }
@@ -75,18 +83,24 @@ func (p *Prover) Init() *Commitment {
 	return commit
 }
 
+func (p *Prover) emptyMerkle(node int64) bool {
+	//_, found := p.empty[node]
+	return false
+}
+
 // Recursive function to generate merkle tree
 // Should have at most O(lgn) hashes in memory at a time
 // return: hash at node i
-func (p *Prover) generateMerkle(node int) []byte {
+func (p *Prover) generateMerkle(node int64) []byte {
 	if node >= p.pow2 { // real vertices
-		n := p.graph.GetNode(node - p.pow2)
-		if n == nil {
+		node = node - p.pow2
+		if node >= p.size {
 			return make([]byte, hashSize)
 		} else {
+			n := p.graph.GetNode(node)
 			return n.H
 		}
-	} else {
+	} else if !p.emptyMerkle(node) {
 		hash1 := p.generateMerkle(node * 2)
 		hash2 := p.generateMerkle(node*2 + 1)
 		val := append(hash1[:], hash2[:]...)
@@ -96,11 +110,13 @@ func (p *Prover) generateMerkle(node int) []byte {
 		p.graph.NewNode(-1*node, hash[:])
 
 		return hash[:]
+	} else {
+		return make([]byte, hashSize)
 	}
 }
 
 // return: hash of node, and the lgN hashes to verify node
-func (p *Prover) Open(node int) ([]byte, [][]byte) {
+func (p *Prover) Open(node int64) ([]byte, [][]byte) {
 	var hash []byte
 	n := p.graph.GetNode(node)
 	if n != nil {
@@ -112,7 +128,7 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 	proof := make([][]byte, p.log2)
 	count := 0
 	for i := node + p.pow2; i > 1; i /= 2 { // root hash not needed, so >1
-		var sib int
+		var sib int64
 
 		if i%2 == 0 { // need to send only the sibling
 			sib = i + 1
@@ -123,6 +139,11 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 		proof[count] = make([]byte, hashSize)
 		if sib >= p.pow2 {
 			node = sib - p.pow2
+			if node >= p.size {
+				proof[count] = n.H
+				count++
+				continue
+			}
 		} else {
 			node = -1 * sib
 		}
@@ -137,7 +158,7 @@ func (p *Prover) Open(node int) ([]byte, [][]byte) {
 
 // Receives challenges from the verifier to prove PoS
 // return: the hash values of the challenges, and the proof for each
-func (p *Prover) ProveSpace(challenges []int) ([][]byte, [][][]byte) {
+func (p *Prover) ProveSpace(challenges []int64) ([][]byte, [][][]byte) {
 	hashes := make([][]byte, len(challenges))
 	proofs := make([][][]byte, len(challenges))
 	for i := range challenges {

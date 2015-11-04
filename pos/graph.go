@@ -1,16 +1,17 @@
 package pos
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
+	"golang.org/x/crypto/sha3"
 	"os"
 	"runtime/pprof"
 )
 
-const nodeSize = hashSize + 2*8 + 1
+const nodeSize = hashSize
 
 type Graph struct {
+	pk     []byte
 	fn     string
 	db     *os.File
 	merkle *os.File
@@ -19,71 +20,22 @@ type Graph struct {
 }
 
 type Node struct {
-	H  []byte // hash at the file
-	Ps []int  // parent node files
+	H []byte // hash at the file
 }
 
 func (n *Node) MarshalBinary() ([]byte, error) {
-	var h byte
-	if n.H == nil {
-		n.H = make([]byte, hashSize)
-		h = 0
-	} else {
-		h = 1
-	}
-
-	buf := new(bytes.Buffer)
-	num, err := buf.Write(n.H)
-	if err != nil || num != len(n.H) {
-		return nil, err
-	}
-
-	for len(n.Ps) != 2 {
-		n.Ps = append(n.Ps, -1)
-	}
-
-	for _, p := range n.Ps {
-		b := make([]byte, 8)
-		binary.PutVarint(b, int64(p))
-		_, err = buf.Write(b)
-		if err != nil {
-			return nil, nil
-		}
-	}
-	return append(buf.Bytes(), h), nil
+	return n.H, nil
 }
 
 func (n *Node) UnmarshalBinary(data []byte) error {
-	n.H = data[:hashSize]
-	n.Ps = make([]int, 2)
-	if data[len(data)-1] == 0 {
-		n.H = nil
-	}
-	count := 0
-	for i := range n.Ps {
-		start := hashSize + i*8
-		end := hashSize + (i+1)*8
-		parent, num := binary.Varint(data[start:end])
-		if num < 0 {
-			panic("couldn't read a parent")
-		}
-		if parent != -1 {
-			n.Ps[count] = int(parent)
-			count++
-		}
-	}
-	n.Ps = n.Ps[:count]
+	n.H = data
 	return nil
-}
-
-func (n *Node) UpdateParents(parents []int) {
-	n.Ps = append(n.Ps, parents...)
 }
 
 // Generate a new PoS graph of index
 // Currently only supports the weaker PoS graph
 // Note that this graph will have O(2^index) nodes
-func NewGraph(index, size, pow2 int, name, fn string) *Graph {
+func NewGraph(index, size, pow2 int, name, fn string, pk []byte) *Graph {
 	cpuprofile := "graph.prof"
 	f, _ := os.Create(cpuprofile)
 	pprof.StartCPUProfile(f)
@@ -103,6 +55,7 @@ func NewGraph(index, size, pow2 int, name, fn string) *Graph {
 	}
 
 	g := &Graph{
+		pk:     pk,
 		fn:     fn,
 		db:     db,
 		merkle: merkle,
@@ -115,11 +68,10 @@ func NewGraph(index, size, pow2 int, name, fn string) *Graph {
 	return g
 }
 
-func (g *Graph) NewNode(id int, hash []byte, ps []int) {
+func (g *Graph) NewNode(id int, hash []byte) {
 	if id >= 0 {
 		node := &Node{
-			H:  hash,
-			Ps: ps,
+			H: hash,
 		}
 		g.WriteNode(node, id)
 	} else {
@@ -142,12 +94,8 @@ func (g *Graph) GetNode(id int) *Node {
 		if err != nil || num != nodeSize {
 			panic(err)
 		}
-		if data != nil {
-			node.UnmarshalBinary(data)
-			return node
-		} else {
-			return nil
-		}
+		node.UnmarshalBinary(data)
+		return node
 	} else {
 		hash := make([]byte, hashSize)
 		num, err := g.merkle.ReadAt(hash, int64(-id)*hashSize)
@@ -184,17 +132,12 @@ func numButterfly(index int) int {
 }
 
 func (g *Graph) ButterflyGraph(index int, count *int) {
-	begin := *count
 	numLevel := 2 * index
 	perLevel := int(1 << uint(index))
-	for level := 0; level < numLevel; level++ {
+	begin := *count - perLevel // level 0 created outside
+	// no parents at level 0
+	for level := 1; level < numLevel; level++ {
 		for i := 0; i < perLevel; i++ {
-			// no parents at level 0
-			if level == 0 {
-				g.NewNode(*count, nil, nil)
-				*count++
-				continue
-			}
 			prev := 0
 			shift := index - level
 			if level > numLevel/2 {
@@ -205,108 +148,145 @@ func (g *Graph) ButterflyGraph(index int, count *int) {
 			} else {
 				prev = i - (1 << uint(shift))
 			}
-			parent1 := begin + (level-1)*perLevel + prev
-			parent2 := *count - perLevel
+			parent0 := g.GetNode(begin + (level-1)*perLevel + prev)
+			parent1 := g.GetNode(*count - perLevel)
 
-			parents := []int{parent1, parent2}
-			g.NewNode(*count, nil, parents)
+			ph := append(parent0.H, parent1.H...)
+			buf := make([]byte, hashSize)
+			binary.PutVarint(buf, int64(*count))
+			val := append(g.pk, buf...)
+			val = append(val, ph...)
+			hash := sha3.Sum256(val)
+
+			g.NewNode(*count, hash[:])
 			*count++
 		}
 	}
 }
 
 func (g *Graph) XiGraph(index int, count *int) {
+	// recursively generate graphs
+	// compute hashes along the way
+
+	pow2index := 1 << uint(index)
+
+	// the first sources
+	// if index == 1, then this will generate level 0 of the butterfly
+	for i := *count; i < pow2index; i++ {
+		buf := make([]byte, hashSize)
+		binary.PutVarint(buf, int64(*count))
+		val := append(g.pk, buf...)
+		hash := sha3.Sum256(val)
+
+		g.NewNode(*count, hash[:])
+		*count++
+	}
+
 	if index == 1 {
 		g.ButterflyGraph(index, count)
 		return
 	}
 
-	pow2index := 1 << uint(index)
-	sources := *count
+	sources := *count - pow2index
 	firstButter := sources + pow2index
 	firstXi := firstButter + numButterfly(index-1)
 	secondXi := firstXi + numXi(index-1)
 	secondButter := secondXi + numXi(index-1)
 	sinks := secondButter + numButterfly(index-1)
-
-	//graph generation
-	for i := 0; i < pow2index; i++ {
-		// "SO" for sources
-		g.NewNode(*count, nil, nil)
-		*count++
-	}
-
-	// recursively generate graphs
-	g.ButterflyGraph(index-1, count)
-	g.XiGraph(index-1, count)
-	g.XiGraph(index-1, count)
-	g.ButterflyGraph(index-1, count)
-
-	for i := 0; i < pow2index; i++ {
-		// "SI" for sinks
-		g.NewNode(*count, nil, nil)
-		*count++
-	}
-
 	pow2index_1 := int(1 << uint(index-1))
 
 	// sources to sources of first butterfly
+	// create sources of first butterly
 	for i := 0; i < pow2index_1; i++ {
-		nodeId := firstButter + i
-		parent0 := sources + i
-		parent1 := sources + i + pow2index_1
-		node := g.GetNode(nodeId)
-		node.UpdateParents([]int{parent0, parent1})
-		g.WriteNode(node, nodeId)
+		parent0 := g.GetNode(sources + i)
+		parent1 := g.GetNode(sources + i + pow2index_1)
+
+		ph := append(parent0.H, parent1.H...)
+		buf := make([]byte, hashSize)
+		binary.PutVarint(buf, int64(*count))
+		val := append(g.pk, buf...)
+		val = append(val, ph...)
+		hash := sha3.Sum256(val)
+
+		g.NewNode(*count, hash[:])
+		*count++
 	}
 
+	g.ButterflyGraph(index-1, count)
 	// sinks of first butterfly to sources of first xi graph
 	for i := 0; i < pow2index_1; i++ {
 		nodeId := firstXi + i
 		// index is the last level; i.e., sinks
-		parent := firstButter - pow2index_1 + i
-		node := g.GetNode(nodeId)
-		node.UpdateParents([]int{parent})
-		g.WriteNode(node, nodeId)
+		parent := g.GetNode(firstButter - pow2index_1 + i)
+
+		buf := make([]byte, hashSize)
+		binary.PutVarint(buf, int64(nodeId))
+		val := append(g.pk, buf...)
+		val = append(val, parent.H...)
+		hash := sha3.Sum256(val)
+
+		g.NewNode(nodeId, hash[:])
+		*count++
 	}
 
+	g.XiGraph(index-1, count)
 	// sinks of first xi to sources of second xi
 	for i := 0; i < pow2index_1; i++ {
 		nodeId := secondXi + i
-		parent := secondXi - pow2index_1 + i
-		node := g.GetNode(nodeId)
-		node.UpdateParents([]int{parent})
-		g.WriteNode(node, nodeId)
+		parent := g.GetNode(secondXi - pow2index_1 + i)
+
+		buf := make([]byte, hashSize)
+		binary.PutVarint(buf, int64(nodeId))
+		val := append(g.pk, buf...)
+		val = append(val, parent.H...)
+		hash := sha3.Sum256(val)
+
+		g.NewNode(nodeId, hash[:])
+		*count++
 	}
 
+	g.XiGraph(index-1, count)
 	// sinks of second xi to sources of second butterfly
 	for i := 0; i < pow2index_1; i++ {
 		nodeId := secondButter + i
-		parent := secondButter - pow2index_1 + i
-		node := g.GetNode(nodeId)
-		node.UpdateParents([]int{parent})
-		g.WriteNode(node, nodeId)
+		parent := g.GetNode(secondButter - pow2index_1 + i)
+
+		buf := make([]byte, hashSize)
+		binary.PutVarint(buf, int64(nodeId))
+		val := append(g.pk, buf...)
+		val = append(val, parent.H...)
+		hash := sha3.Sum256(val)
+
+		g.NewNode(nodeId, hash[:])
+		*count++
 	}
 
+	// generate sinks
 	// sinks of second butterfly to sinks
+	// and sources to sinks directly
+	g.ButterflyGraph(index-1, count)
 	for i := 0; i < pow2index_1; i++ {
 		nodeId0 := sinks + i
 		nodeId1 := sinks + i + pow2index_1
-		parent := sinks - pow2index_1 + i
-		node0 := g.GetNode(nodeId0)
-		node0.UpdateParents([]int{parent})
-		node1 := g.GetNode(nodeId1)
-		node1.UpdateParents([]int{parent})
-		g.WriteNode(node0, nodeId0)
-		g.WriteNode(node1, nodeId1)
-	}
+		parent0 := g.GetNode(sinks - pow2index_1 + i)
+		parent1_0 := g.GetNode(sources + i)
+		parent1_1 := g.GetNode(sources + i + pow2index_1)
 
-	// sources to sinks directly
-	for i := 0; i < int(1<<uint(index)); i++ {
-		nodeId := sinks + i
-		parent := sources + i
-		node := g.GetNode(nodeId)
-		node.UpdateParents([]int{parent})
-		g.WriteNode(node, nodeId)
+		ph := append(parent0.H, parent1_0.H...)
+		buf := make([]byte, hashSize)
+		binary.PutVarint(buf, int64(nodeId0))
+		val := append(g.pk, buf...)
+		val = append(val, ph...)
+		hash1 := sha3.Sum256(val)
+
+		ph = append(parent0.H, parent1_1.H...)
+		binary.PutVarint(buf, int64(nodeId1))
+		val = append(g.pk, buf...)
+		val = append(val, ph...)
+		hash2 := sha3.Sum256(val)
+
+		g.NewNode(nodeId0, hash1[:])
+		g.NewNode(nodeId1, hash2[:])
+		*count += 2
 	}
 }

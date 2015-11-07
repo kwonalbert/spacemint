@@ -36,7 +36,7 @@ func NewProver(pk []byte, index int64, name, graph string) *Prover {
 		pow2 = 1 << uint64(log2)
 	}
 
-	g := NewGraph(index, size, pow2, name, graph, pk)
+	g := NewGraph(index, size, pow2, log2, graph, pk)
 
 	empty := make(map[int64]bool)
 
@@ -96,8 +96,7 @@ func (p *Prover) emptyMerkle(node int64) bool {
 // return: hash at node i
 func (p *Prover) generateMerkle(node int64) []byte {
 	if node >= p.pow2 { // real vertices
-		node = node - p.pow2
-		if node >= p.size {
+		if node >= p.pow2+p.size {
 			return make([]byte, hashSize)
 		} else {
 			n := p.graph.GetNode(node)
@@ -110,7 +109,7 @@ func (p *Prover) generateMerkle(node int64) []byte {
 		val = append(p.pk, val...)
 		hash := sha3.Sum256(val)
 
-		p.graph.NewNode(-1*node, hash[:])
+		p.graph.NewNode(node, hash[:])
 
 		return hash[:]
 	} else {
@@ -121,7 +120,7 @@ func (p *Prover) generateMerkle(node int64) []byte {
 // return: hash of node, and the lgN hashes to verify node
 func (p *Prover) Open(node int64) ([]byte, [][]byte) {
 	var hash []byte
-	n := p.graph.GetNode(node)
+	n := p.graph.GetNode(node + p.pow2)
 	if n != nil {
 		hash = n.H
 	} else {
@@ -139,23 +138,13 @@ func (p *Prover) Open(node int64) ([]byte, [][]byte) {
 			sib = i - 1
 		}
 
-		if sib >= p.pow2 {
-			node = sib - p.pow2
-			if node >= p.size {
-				proof[count] = make([]byte, hashSize)
-				count++
-				continue
-			}
-		} else {
-			node = -1 * sib
-			if p.emptyMerkle(node) {
-				proof[count] = make([]byte, hashSize)
-				count++
-				continue
-			}
+		if sib >= p.pow2+p.size || p.emptyMerkle(sib) {
+			proof[count] = make([]byte, hashSize)
+			count++
+			continue
 		}
 
-		n := p.graph.GetNode(node)
+		n := p.graph.GetNode(sib)
 		proof[count] = n.H
 		count++
 	}

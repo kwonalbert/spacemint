@@ -40,8 +40,11 @@ func NewProver(pk []byte, index int64, name, graph string) *Prover {
 
 	empty := make(map[int64]bool)
 
-	for i := size; util.Count(uint64(i+1)) == 0; i /= 2 {
-		empty[i+1] = true
+	// if not power of 2, then uneven merkle
+	if util.Count(uint64(size)) != 1 {
+		for i := pow2 + size; util.Count(uint64(i+1)) != 1; i /= 2 {
+			empty[i+1] = true
+		}
 	}
 
 	p := Prover{
@@ -84,8 +87,8 @@ func (p *Prover) Init() *Commitment {
 }
 
 func (p *Prover) emptyMerkle(node int64) bool {
-	//_, found := p.empty[node]
-	return false
+	_, found := p.empty[node]
+	return found
 }
 
 // Recursive function to generate merkle tree
@@ -136,21 +139,24 @@ func (p *Prover) Open(node int64) ([]byte, [][]byte) {
 			sib = i - 1
 		}
 
-		proof[count] = make([]byte, hashSize)
 		if sib >= p.pow2 {
 			node = sib - p.pow2
 			if node >= p.size {
-				proof[count] = n.H
+				proof[count] = make([]byte, hashSize)
 				count++
 				continue
 			}
 		} else {
 			node = -1 * sib
+			if p.emptyMerkle(node) {
+				proof[count] = make([]byte, hashSize)
+				count++
+				continue
+			}
 		}
+
 		n := p.graph.GetNode(node)
-		if n != nil {
-			proof[count] = n.H
-		}
+		proof[count] = n.H
 		count++
 	}
 	return hash, proof

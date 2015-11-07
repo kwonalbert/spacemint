@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"flag"
 	"fmt"
+	"golang.org/x/crypto/sha3"
 	"log"
 	"os"
 	"runtime"
@@ -18,8 +19,17 @@ var pk []byte
 var index int64 = 15
 var size int64 = 0
 var beta int = 10
-var graphDir string = "Xi"
+var graphDir string = "/media/storage/Xi"
 var name string = "G"
+
+func BenchmarkSha3(b *testing.B) {
+	// run the Fib function b.N times
+	buf := make([]byte, 2*hashSize)
+	for n := 0; n < b.N; n++ {
+		rand.Read(buf)
+		sha3.Sum256(buf)
+	}
+}
 
 func TestEmpty(t *testing.T) {
 

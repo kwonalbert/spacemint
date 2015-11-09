@@ -31,6 +31,14 @@ func BenchmarkSha3(b *testing.B) {
 	}
 }
 
+// func TestIndex(t *testing.T) {
+// 	now := time.Now()
+// 	for n := int64(1); n < prover.pow2+prover.size; n++ {
+// 		prover.graph.bfsToPost(int64(n))
+// 	}
+// 	fmt.Printf("v1 %fs\n", time.Since(now).Seconds())
+// }
+
 func TestEmpty(t *testing.T) {
 
 }
@@ -110,10 +118,10 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	index = int64(*id)
 
-	os.RemoveAll(graphDir)
+	//os.RemoveAll(graphDir)
 
 	now := time.Now()
-	prover = NewProver(pk, index, name, graphDir)
+	prover = NewProver(pk, index, name, fmt.Sprintf("%s%d", graphDir, *id))
 	fmt.Printf("%d. Graph gen: %fs\n", index, time.Since(now).Seconds())
 
 	now = time.Now()

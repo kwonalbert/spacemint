@@ -6,6 +6,8 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"github.com/kwonalbert/spacecoin/block"
 	"github.com/kwonalbert/spacecoin/pos"
 	"github.com/kwonalbert/spacecoin/util"
@@ -28,7 +30,7 @@ type Client struct {
 	sols chan *block.Block // others' blocks
 
 	//pos params
-	size     int
+	index    int64
 	prover   *pos.Prover
 	verifier *pos.Verifier
 	commit   pos.Commitment
@@ -37,7 +39,7 @@ type Client struct {
 	clients []*rpc.Client
 }
 
-func NewClient(t time.Duration, dist int, size, beta int, graph string) *Client {
+func NewClient(t time.Duration, dist, beta int, index int64, graph string) *Client {
 	sk, err := sign.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		panic(err)
@@ -48,9 +50,9 @@ func NewClient(t time.Duration, dist int, size, beta int, graph string) *Client 
 		panic(err)
 	}
 
-	prover := pos.NewProver(pkBytes, size, graph)
+	prover := pos.NewProver(pkBytes, index, "Xi", graph)
 	commit := prover.Init()
-	verifier := pos.NewVerifier(pkBytes, size, beta, commit.Commit)
+	verifier := pos.NewVerifier(pkBytes, index, beta, commit.Commit)
 
 	c := Client{
 		sk:   sk,
@@ -60,7 +62,7 @@ func NewClient(t time.Duration, dist int, size, beta int, graph string) *Client 
 
 		sols: make(chan *block.Block, 100), // nomially say 100 answers per round..
 
-		size:     size,
+		index:    index,
 		prover:   prover,
 		verifier: verifier,
 		commit:   *commit,
@@ -76,7 +78,7 @@ func (c *Client) Mine(challenge []byte) *block.PoS {
 	nodes := c.verifier.SelectChallenges(challenge)
 	hashes, proofs := c.prover.ProveSpace(nodes)
 	a := block.Answer{
-		Size:   c.size,
+		Size:   c.index,
 		Hashes: hashes,
 		Proofs: proofs,
 	}
@@ -166,5 +168,20 @@ func (c *Client) round() {
 }
 
 func main() {
+	idx := flag.Int("index", 1, "graph index")
+	name := flag.String("name", "Xi", "graph name")
+	dir := flag.String("file", "/media/storage/Xi", "graph location")
+	mode := flag.String("mode", "gen", "mode:[gen|commit]")
+	flag.Parse()
 
+	pk := []byte{1}
+	now := time.Now()
+	prover := pos.NewProver(pk, int64(*idx), *name, *dir)
+	if *mode == "gen" {
+		fmt.Printf("%d. Graph gen: %fs\n", *idx, time.Since(now).Seconds())
+	} else if *mode == "commit" {
+		now = time.Now()
+		prover.Init()
+		fmt.Printf("%d. Graph commit: %fs\n", *idx, time.Since(now).Seconds())
+	}
 }

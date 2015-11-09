@@ -6,7 +6,7 @@ import (
 	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
 	"os"
-	"runtime/pprof"
+	//"runtime/pprof"
 )
 
 const nodeSize = hashSize
@@ -37,17 +37,25 @@ func (n *Node) UnmarshalBinary(data []byte) error {
 // Currently only supports the weaker PoS graph
 // Note that this graph will have O(2^index) nodes
 func NewGraph(index, size, pow2, log2 int64, fn string, pk []byte) *Graph {
-	cpuprofile := "graph.prof"
-	f, _ := os.Create(cpuprofile)
-	pprof.StartCPUProfile(f)
-	defer pprof.StopCPUProfile()
+	// cpuprofile := "graph.prof"
+	// f, _ := os.Create(cpuprofile)
+	// pprof.StartCPUProfile(f)
+	// defer pprof.StopCPUProfile()
 
 	// recursively generate graphs
-	var count int64 = pow2
-
-	db, err := os.Create(fn)
-	if err != nil {
-		panic(err)
+	var db *os.File
+	_, err := os.Stat(fn)
+	fileExists := err == nil
+	if fileExists { //file exists
+		db, err = os.OpenFile(fn, os.O_RDWR, 0666)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		db, err = os.Create(fn)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	g := &Graph{
@@ -59,9 +67,19 @@ func NewGraph(index, size, pow2, log2 int64, fn string, pk []byte) *Graph {
 		pow2: pow2,
 	}
 
-	g.XiGraph(index, &count)
+	if !fileExists {
+		count := pow2
+		g.XiGraph(index, &count)
+	}
 
 	return g
+}
+
+func (g *Graph) NewNodeById(id int64, hash []byte) {
+	node := &Node{
+		H: hash,
+	}
+	g.WriteId(node, id)
 }
 
 func (g *Graph) NewNode(id int64, hash []byte) {
@@ -71,13 +89,11 @@ func (g *Graph) NewNode(id int64, hash []byte) {
 	g.WriteNode(node, id)
 }
 
-// Gets the node, and update the node.
-// Otherwise, create a node
-func (g *Graph) GetNode(id int64) *Node {
-	idx := g.bfsToPost(id)
+func (g *Graph) GetId(id int64) *Node {
+	//fmt.Println("read id", id)
 	node := new(Node)
 	data := make([]byte, nodeSize)
-	num, err := g.db.ReadAt(data, idx*nodeSize)
+	num, err := g.db.ReadAt(data, id*nodeSize)
 	if err != nil || num != nodeSize {
 		panic(err)
 	}
@@ -85,12 +101,26 @@ func (g *Graph) GetNode(id int64) *Node {
 	return node
 }
 
-func (g *Graph) WriteNode(node *Node, id int64) {
-	idx := g.bfsToPost(id)
-	num, err := g.db.WriteAt(node.H, idx*nodeSize)
+func (g *Graph) WriteId(node *Node, id int64) {
+	//fmt.Println("write id", id)
+	num, err := g.db.WriteAt(node.H, id*nodeSize)
 	if err != nil || num != nodeSize {
 		panic(err)
 	}
+}
+
+// Gets the node, and update the node.
+// Otherwise, create a node
+func (g *Graph) GetNode(id int64) *Node {
+	idx := g.bfsToPost(id)
+	//fmt.Println("read", idx)
+	return g.GetId(idx)
+}
+
+func (g *Graph) WriteNode(node *Node, id int64) {
+	idx := g.bfsToPost(id)
+	//fmt.Println("write", idx)
+	g.WriteId(node, idx)
 }
 
 func (g *Graph) Close() {
@@ -103,13 +133,21 @@ func (g *Graph) subtree(node int64) int64 {
 }
 
 func (g *Graph) bfsToPost(node int64) int64 {
-	if node == 1 {
-		return 2*g.pow2 - 1
-	} else if node%2 == 0 { //left child
-		return g.bfsToPost(node/2) - g.subtree(node) - 1
-	} else {
-		return g.bfsToPost(node/2) - 1
+	if node == 0 {
+		return 0
 	}
+	cur := node
+	res := int64(0)
+	for cur != 1 {
+		if cur%2 == 0 {
+			res -= (g.subtree(cur) + 1)
+		} else {
+			res--
+		}
+		cur /= 2
+	}
+	res += 2*g.pow2 - 1
+	return res
 }
 
 func numXi(index int64) int64 {

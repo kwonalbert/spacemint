@@ -72,7 +72,6 @@ func (v *Verifier) Verify(node int64, hash []byte, proof [][]byte) bool {
 		} else {
 			val = append(proof[counter], curHash...)
 		}
-		val = append(v.pk, val...)
 		hash := sha3.Sum256(val)
 		curHash = hash[:]
 		counter++

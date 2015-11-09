@@ -4,8 +4,8 @@ import (
 	//"fmt"
 	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
-	"os"
-	"runtime/pprof"
+	//"os"
+	//"runtime/pprof"
 )
 
 type Prover struct {
@@ -65,13 +65,13 @@ func NewProver(pk []byte, index int64, name, graph string) *Prover {
 // return: root hash of the merkle tree
 //         will also write out the merkle tree
 func (p *Prover) Init() *Commitment {
-	f, _ := os.Create("prover.cpu")
-	pprof.StartCPUProfile(f)
-	defer pprof.StopCPUProfile()
+	// f, _ := os.Create("prover.cpu")
+	// pprof.StartCPUProfile(f)
+	// defer pprof.StopCPUProfile()
 
 	// build the merkle tree in depth first fashion
 	// root node is 1
-	root := p.generateMerkle(1)
+	root := p.generateMerkle()
 	p.commit = root
 
 	// f2, _ := os.Create("prover.mem")
@@ -94,27 +94,63 @@ func (p *Prover) emptyMerkle(node int64) bool {
 // Recursive function to generate merkle tree
 // Should have at most O(lgn) hashes in memory at a time
 // return: hash at node i
-func (p *Prover) generateMerkle(node int64) []byte {
-	if node >= p.pow2 { // real vertices
-		if node >= p.pow2+p.size {
-			return make([]byte, hashSize)
-		} else {
-			n := p.graph.GetNode(node)
-			return n.H
+func (p *Prover) generateMerkle() []byte {
+	var stack []int64
+	var hashStack [][]byte
+
+	cur := int64(1)
+	count := int64(1)
+
+	for count == 1 || len(stack) != 0 {
+		empty := p.emptyMerkle(cur)
+		for ; cur < 2*p.pow2 && !empty; cur *= 2 {
+			if cur < p.pow2 { //right child
+				stack = append(stack, 2*cur+1)
+			}
+			stack = append(stack, cur)
 		}
-	} else if !p.emptyMerkle(node) {
-		hash1 := p.generateMerkle(node * 2)
-		hash2 := p.generateMerkle(node*2 + 1)
-		val := append(hash1[:], hash2[:]...)
-		val = append(p.pk, val...)
-		hash := sha3.Sum256(val)
 
-		p.graph.NewNode(node, hash[:])
+		if empty {
+			count += p.graph.subtree(cur)
+			hashStack = append(hashStack, make([]byte, hashSize))
+		}
 
-		return hash[:]
-	} else {
-		return make([]byte, hashSize)
+		cur, stack = stack[len(stack)-1], stack[:len(stack)-1]
+
+		if len(stack) > 0 && cur < p.pow2 &&
+			(stack[len(stack)-1] == 2*cur+1) {
+			stack = stack[:len(stack)-1]
+			stack = append(stack, cur)
+			cur = 2*cur + 1
+			continue
+		}
+
+		if cur >= p.pow2 {
+			if cur >= p.pow2+p.size {
+				hashStack = append(hashStack, make([]byte, hashSize))
+				count++
+			} else {
+				n := p.graph.GetId(count)
+				count++
+				hashStack = append(hashStack, n.H)
+			}
+		} else if !p.emptyMerkle(cur) {
+			hash2 := hashStack[len(hashStack)-1]
+			hashStack = hashStack[:len(hashStack)-1]
+			hash1 := hashStack[len(hashStack)-1]
+			hashStack = hashStack[:len(hashStack)-1]
+			val := append(hash1[:], hash2[:]...)
+			hash := sha3.Sum256(val)
+
+			hashStack = append(hashStack, hash[:])
+
+			p.graph.NewNodeById(count, hash[:])
+			count++
+		}
+		cur = 2 * p.pow2
 	}
+
+	return hashStack[0]
 }
 
 // return: hash of node, and the lgN hashes to verify node

@@ -6,7 +6,7 @@ import (
 )
 
 // return: x^y
-func Pow(x *big.Float, n int) *big.Float {
+func Pow(x *big.Float, n int64) *big.Float {
 	res := new(big.Float).Copy(x)
 	if n < 0 {
 		res = res.Quo(big.NewFloat(1), res)
@@ -30,7 +30,7 @@ func Pow(x *big.Float, n int) *big.Float {
 // Implements the nth root algorithm from
 // https://en.wikipedia.org/wiki/Nth_root_algorithm
 // return: nth root of x within some epsilon
-func Root(x *big.Float, n int) *big.Float {
+func Root(x *big.Float, n int64) *big.Float {
 	guess := new(big.Float).Quo(x, big.NewFloat(float64(n)))
 	diff := big.NewFloat(1)
 	ep := big.NewFloat(0.00000001)
@@ -48,7 +48,7 @@ func Root(x *big.Float, n int) *big.Float {
 	return guess
 }
 
-// return: floor log base 2 of x
+//return: floor log base 2 of x
 func Log2(x int64) int64 {
 	var r int64 = 0
 	for ; x > 1; x >>= 1 {

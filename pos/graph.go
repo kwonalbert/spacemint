@@ -68,8 +68,7 @@ func NewGraph(index, size, pow2, log2 int64, fn string, pk []byte) *Graph {
 	}
 
 	if !fileExists {
-		count := pow2
-		g.XiGraph(index, &count)
+		g.XiGraphIter(index)
 	}
 
 	return g

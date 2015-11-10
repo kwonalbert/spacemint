@@ -16,10 +16,10 @@ import (
 var prover *Prover = nil
 var verifier *Verifier = nil
 var pk []byte
-var index int64 = 15
+var index int64 = 3
 var size int64 = 0
 var beta int = 10
-var graphDir string = "/media/storage/Xi"
+var graphDir string = "Xi"
 var name string = "G"
 
 func BenchmarkSha3(b *testing.B) {
@@ -40,7 +40,6 @@ func BenchmarkSha3(b *testing.B) {
 // }
 
 func TestEmpty(t *testing.T) {
-
 }
 
 func TestPoS(t *testing.T) {
@@ -118,18 +117,24 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	index = int64(*id)
 
+	graphDir = fmt.Sprintf("%s%d", graphDir, *id)
 	//os.RemoveAll(graphDir)
 
 	now := time.Now()
-	prover = NewProver(pk, index, name, fmt.Sprintf("%s%d", graphDir, *id))
+	prover = NewProver(pk, index, name, graphDir)
 	fmt.Printf("%d. Graph gen: %fs\n", index, time.Since(now).Seconds())
 
-	now = time.Now()
-	commit := prover.Init()
-	fmt.Printf("%d. Graph commit: %fs\n", index, time.Since(now).Seconds())
+	// os.RemoveAll(graphDir)
+	// now = time.Now()
+	// prover.graph.XiGraphIter(index)
+	// fmt.Printf("%d. Graph gen: %fs\n", index, time.Since(now).Seconds())
 
-	root := commit.Commit
-	verifier = NewVerifier(pk, index, beta, root)
+	// now = time.Now()
+	// commit := prover.Init()
+	// fmt.Printf("%d. Graph commit: %fs\n", index, time.Since(now).Seconds())
+
+	// root := commit.Commit
+	// verifier = NewVerifier(pk, index, beta, root)
 
 	os.Exit(m.Run())
 }

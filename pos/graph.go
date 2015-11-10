@@ -159,6 +159,9 @@ func numButterfly(index int64) int64 {
 }
 
 func (g *Graph) ButterflyGraph(index int64, count *int64) {
+	if index == 0 {
+		index = 1
+	}
 	numLevel := 2 * index
 	perLevel := int64(1 << uint64(index))
 	begin := *count - perLevel // level 0 created outside
@@ -192,6 +195,146 @@ func (g *Graph) ButterflyGraph(index int64, count *int64) {
 	}
 }
 
+func (g *Graph) XiGraphIter(index int64) {
+	count := g.pow2
+
+	stack := []int64{index, index, index, index, index}
+	graphStack := []int{4, 3, 2, 1, 0}
+
+	var i int64
+	graph := 0
+	pow2index := int64(1 << uint64(index))
+	for i = 0; i < pow2index; i++ { //sources at this level
+		buf := make([]byte, hashSize)
+		binary.PutVarint(buf, count)
+		val := append(g.pk, buf...)
+		hash := sha3.Sum256(val)
+
+		g.NewNode(count, hash[:])
+		count++
+	}
+
+	if index == 1 {
+		g.ButterflyGraph(index, &count)
+		return
+	}
+
+	for len(stack) != 0 && len(graphStack) != 0 {
+		index, stack = stack[len(stack)-1], stack[:len(stack)-1]
+		graph, graphStack = graphStack[len(graphStack)-1], graphStack[:len(graphStack)-1]
+
+		indices := []int64{index - 1, index - 1, index - 1, index - 1, index - 1}
+		graphs := []int{4, 3, 2, 1, 0}
+
+		pow2index := int64(1 << uint64(index))
+		pow2index_1 := int64(1 << uint64(index-1))
+
+		if graph == 0 {
+			sources := count - pow2index
+			// sources to sources of first butterfly
+			// create sources of first butterly
+			for i = 0; i < pow2index_1; i++ {
+				parent0 := g.GetNode(sources + i)
+				parent1 := g.GetNode(sources + i + pow2index_1)
+
+				ph := append(parent0.H, parent1.H...)
+				buf := make([]byte, hashSize)
+				binary.PutVarint(buf, count)
+				val := append(g.pk, buf...)
+				val = append(val, ph...)
+				hash := sha3.Sum256(val)
+
+				g.NewNode(count, hash[:])
+				count++
+			}
+		} else if graph == 1 {
+			firstXi := count
+			// sinks of first butterfly to sources of first xi graph
+			for i = 0; i < pow2index_1; i++ {
+				nodeId := firstXi + i
+				// index is the last level; i.e., sinks
+				parent := g.GetNode(firstXi - pow2index_1 + i)
+
+				buf := make([]byte, hashSize)
+				binary.PutVarint(buf, nodeId)
+				val := append(g.pk, buf...)
+				val = append(val, parent.H...)
+				hash := sha3.Sum256(val)
+
+				g.NewNode(nodeId, hash[:])
+				count++
+			}
+		} else if graph == 2 {
+			secondXi := count
+			// sinks of first xi to sources of second xi
+			for i = 0; i < pow2index_1; i++ {
+				nodeId := secondXi + i
+				parent := g.GetNode(secondXi - pow2index_1 + i)
+
+				buf := make([]byte, hashSize)
+				binary.PutVarint(buf, nodeId)
+				val := append(g.pk, buf...)
+				val = append(val, parent.H...)
+				hash := sha3.Sum256(val)
+
+				g.NewNode(nodeId, hash[:])
+				count++
+			}
+		} else if graph == 3 {
+			secondButter := count
+			// sinks of second xi to sources of second butterfly
+			for i = 0; i < pow2index_1; i++ {
+				nodeId := secondButter + i
+				parent := g.GetNode(secondButter - pow2index_1 + i)
+
+				buf := make([]byte, hashSize)
+				binary.PutVarint(buf, nodeId)
+				val := append(g.pk, buf...)
+				val = append(val, parent.H...)
+				hash := sha3.Sum256(val)
+
+				g.NewNode(nodeId, hash[:])
+				count++
+			}
+		} else {
+			sinks := count
+			sources := sinks + pow2index - numXi(index)
+			for i = 0; i < pow2index_1; i++ {
+				nodeId0 := sinks + i
+				nodeId1 := sinks + i + pow2index_1
+				parent0 := g.GetNode(sinks - pow2index_1 + i)
+				parent1_0 := g.GetNode(sources + i)
+				parent1_1 := g.GetNode(sources + i + pow2index_1)
+
+				ph := append(parent0.H, parent1_0.H...)
+				buf := make([]byte, hashSize)
+				binary.PutVarint(buf, nodeId0)
+				val := append(g.pk, buf...)
+				val = append(val, ph...)
+				hash1 := sha3.Sum256(val)
+
+				ph = append(parent0.H, parent1_1.H...)
+				binary.PutVarint(buf, nodeId1)
+				val = append(g.pk, buf...)
+				val = append(val, ph...)
+				hash2 := sha3.Sum256(val)
+
+				g.NewNode(nodeId0, hash1[:])
+				g.NewNode(nodeId1, hash2[:])
+				count += 2
+			}
+		}
+
+		if (graph == 0 || graph == 3) ||
+			((graph == 1 || graph == 2) && index == 2) {
+			g.ButterflyGraph(index-1, &count)
+		} else if graph == 1 || graph == 2 {
+			stack = append(stack, indices...)
+			graphStack = append(graphStack, graphs...)
+		}
+	}
+}
+
 func (g *Graph) XiGraph(index int64, count *int64) {
 	// recursively generate graphs
 	// compute hashes along the way
@@ -201,6 +344,7 @@ func (g *Graph) XiGraph(index int64, count *int64) {
 	// the first sources
 	// if index == 1, then this will generate level 0 of the butterfly
 	var i int64
+
 	if *count == g.pow2 {
 		for i = 0; i < pow2index; i++ {
 			buf := make([]byte, hashSize)
@@ -247,8 +391,7 @@ func (g *Graph) XiGraph(index int64, count *int64) {
 	// sinks of first butterfly to sources of first xi graph
 	for i = 0; i < pow2index_1; i++ {
 		nodeId := firstXi + i
-		// index is the last level; i.e., sinks
-		parent := g.GetNode(firstButter - pow2index_1 + i)
+		parent := g.GetNode(firstXi - pow2index_1 + i)
 
 		buf := make([]byte, hashSize)
 		binary.PutVarint(buf, nodeId)

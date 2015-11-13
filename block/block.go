@@ -29,9 +29,11 @@ type PoS struct {
 }
 
 type Answer struct {
-	Size   int64
-	Hashes [][]byte
-	Proofs [][][]byte
+	Size    int64
+	Hashes  [][]byte
+	Parents [][][]byte
+	Proofs  [][][]byte
+	PProofs [][][][]byte
 }
 
 type Signature struct {

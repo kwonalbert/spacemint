@@ -12,6 +12,7 @@ import (
 	"github.com/kwonalbert/spacecoin/pos"
 	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
+	"log"
 	"math"
 	"math/big"
 	//"net"
@@ -76,11 +77,13 @@ func (c *Client) Sign(msg []byte) ([]byte, error) {
 
 func (c *Client) Mine(challenge []byte) *block.PoS {
 	nodes := c.verifier.SelectChallenges(challenge)
-	hashes, proofs := c.prover.ProveSpace(nodes)
+	hashes, parents, proofs, pProofs := c.prover.ProveSpace(nodes)
 	a := block.Answer{
-		Size:   c.index,
-		Hashes: hashes,
-		Proofs: proofs,
+		Size:    c.index,
+		Hashes:  hashes,
+		Parents: parents,
+		Proofs:  proofs,
+		PProofs: pProofs,
 	}
 	p := block.PoS{
 		Commit:    c.commit,
@@ -96,14 +99,11 @@ func (c *Client) Mine(challenge []byte) *block.PoS {
 // return: quality in float64
 func (c *Client) Quality(challenge []byte, a block.Answer) float64 {
 	nodes := c.verifier.SelectChallenges(challenge)
-	if !c.verifier.VerifySpace(nodes, a.Hashes, a.Proofs) {
+	if !c.verifier.VerifySpace(nodes, a.Hashes, a.Parents, a.Proofs, a.PProofs) {
 		return -1
 	}
 
 	all := util.Concat(a.Hashes)
-	for i := range a.Proofs {
-		all = append(all, util.Concat(a.Proofs[i])...)
-	}
 	answerHash := sha3.Sum256(all)
 	x := new(big.Float).SetInt(new(big.Int).SetBytes(answerHash[:]))
 	num, _ := util.Root(x, a.Size).Float64()
@@ -175,6 +175,7 @@ func main() {
 	flag.Parse()
 
 	pk := []byte{1}
+	beta := 30
 	now := time.Now()
 	prover := pos.NewProver(pk, int64(*idx), *name, *dir)
 	if *mode == "gen" {
@@ -183,5 +184,23 @@ func main() {
 		now = time.Now()
 		prover.Init()
 		fmt.Printf("%d. Graph commit: %fs\n", *idx, time.Since(now).Seconds())
+	} else if *mode == "check" {
+		commit := prover.PreInit()
+		root := commit.Commit
+		verifier := pos.NewVerifier(pk, int64(*idx), beta, root)
+
+		seed := make([]byte, 64)
+		rand.Read(seed)
+		cs := verifier.SelectChallenges(seed)
+
+		now = time.Now()
+		hashes, parents, proofs, pProofs := prover.ProveSpace(cs)
+		fmt.Printf("Prove: %f\n", time.Since(now).Seconds())
+
+		now = time.Now()
+		if !verifier.VerifySpace(cs, hashes, parents, proofs, pProofs) {
+			log.Fatal("Verify space failed:", cs)
+		}
+		fmt.Printf("Verify: %f\n", time.Since(now).Seconds())
 	}
 }

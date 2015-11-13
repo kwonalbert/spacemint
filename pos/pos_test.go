@@ -18,7 +18,7 @@ var verifier *Verifier = nil
 var pk []byte
 var index int64 = 3
 var size int64 = 0
-var beta int = 10
+var beta int = 30
 var graphDir string = "Xi"
 var name string = "G"
 
@@ -47,11 +47,11 @@ func TestPoS(t *testing.T) {
 	rand.Read(seed)
 	challenges := verifier.SelectChallenges(seed)
 	now := time.Now()
-	hashes, proofs := prover.ProveSpace(challenges)
+	hashes, parents, proofs, pProofs := prover.ProveSpace(challenges)
 	fmt.Printf("Prove: %f\n", time.Since(now).Seconds())
 
 	now = time.Now()
-	if !verifier.VerifySpace(challenges, hashes, proofs) {
+	if !verifier.VerifySpace(challenges, hashes, parents, proofs, pProofs) {
 		log.Fatal("Verify space failed:", challenges)
 	}
 	fmt.Printf("Verify: %f\n", time.Since(now).Seconds())
@@ -124,17 +124,12 @@ func TestMain(m *testing.M) {
 	prover = NewProver(pk, index, name, graphDir)
 	fmt.Printf("%d. Graph gen: %fs\n", index, time.Since(now).Seconds())
 
-	// os.RemoveAll(graphDir)
-	// now = time.Now()
-	// prover.graph.XiGraphIter(index)
-	// fmt.Printf("%d. Graph gen: %fs\n", index, time.Since(now).Seconds())
+	now = time.Now()
+	commit := prover.Init()
+	fmt.Printf("%d. Graph commit: %fs\n", index, time.Since(now).Seconds())
 
-	// now = time.Now()
-	// commit := prover.Init()
-	// fmt.Printf("%d. Graph commit: %fs\n", index, time.Since(now).Seconds())
-
-	// root := commit.Commit
-	// verifier = NewVerifier(pk, index, beta, root)
+	root := commit.Commit
+	verifier = NewVerifier(pk, index, beta, root)
 
 	os.Exit(m.Run())
 }

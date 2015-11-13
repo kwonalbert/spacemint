@@ -86,6 +86,17 @@ func (p *Prover) Init() *Commitment {
 	return commit
 }
 
+// Read the commitment from pre-initialized graph
+func (p *Prover) PreInit() *Commitment {
+	node := p.graph.GetId(2*p.pow2 - 1)
+	p.commit = node.H
+	commit := &Commitment{
+		Pk:     p.pk,
+		Commit: node.H,
+	}
+	return commit
+}
+
 func (p *Prover) emptyMerkle(node int64) bool {
 	_, found := p.empty[node]
 	return found
@@ -189,12 +200,21 @@ func (p *Prover) Open(node int64) ([]byte, [][]byte) {
 
 // Receives challenges from the verifier to prove PoS
 // return: the hash values of the challenges, and the proof for each
-func (p *Prover) ProveSpace(challenges []int64) ([][]byte, [][][]byte) {
+func (p *Prover) ProveSpace(challenges []int64) ([][]byte, [][][]byte, [][][]byte, [][][][]byte) {
 	hashes := make([][]byte, len(challenges))
 	proofs := make([][][]byte, len(challenges))
+	parents := make([][][]byte, len(challenges))
+	pProofs := make([][][][]byte, len(challenges))
 	for i := range challenges {
 		hashes[i], proofs[i] = p.Open(challenges[i])
-		//TODO: open parents also
+		ps := p.graph.GetParents(challenges[i], p.index)
+		for _, parent := range ps {
+			if parent != -1 {
+				hash, proof := p.Open(parent)
+				parents[i] = append(parents[i], hash)
+				pProofs[i] = append(pProofs[i], proof)
+			}
+		}
 	}
-	return hashes, proofs
+	return hashes, parents, proofs, pProofs
 }

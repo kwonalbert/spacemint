@@ -38,12 +38,7 @@ func (n *Node) UnmarshalBinary(data []byte) error {
 // Currently only supports the weaker PoS graph
 // Note that this graph will have O(2^index) nodes
 func NewGraph(index, size, pow2, log2 int64, fn string, pk []byte) *Graph {
-	// cpuprofile := "graph.prof"
-	// f, _ := os.Create(cpuprofile)
-	// pprof.StartCPUProfile(f)
-	// defer pprof.StopCPUProfile()
 
-	// recursively generate graphs
 	var db *os.File
 	_, err := os.Stat(fn)
 	fileExists := err == nil
@@ -76,6 +71,7 @@ func NewGraph(index, size, pow2, log2 int64, fn string, pk []byte) *Graph {
 	return g
 }
 
+// compute parents of nodes
 func (g *Graph) GetParents(node, index int64) []int64 {
 	if node < int64(1<<uint64(index)) {
 		return nil
@@ -93,6 +89,7 @@ func (g *Graph) GetParents(node, index int64) []int64 {
 	return res
 }
 
+// compute the offsets for the two parents in the butterfly graph
 func (g *Graph) ButterflyParents(begin, node, index int64) (int64, int64) {
 	pow2index_1 := int64(1 << uint64(index-1))
 	level := (node - begin) / pow2index_1
@@ -112,6 +109,7 @@ func (g *Graph) ButterflyParents(begin, node, index int64) (int64, int64) {
 	return parent0, parent1
 }
 
+// get graph that node belongs to, so i can find the parents
 func (g *Graph) GetGraph(node, index int64) (int64, int64) {
 	if index == 1 {
 		if node < 2 {
@@ -287,6 +285,7 @@ func (g *Graph) ButterflyGraph(index int64, count *int64) {
 	}
 }
 
+// Iterative generation of the graph
 func (g *Graph) XiGraphIter(index int64) {
 	count := g.pow2
 

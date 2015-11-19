@@ -4,8 +4,6 @@ import (
 	//"fmt"
 	"github.com/kwonalbert/spacecoin/util"
 	"golang.org/x/crypto/sha3"
-	//"os"
-	//"runtime/pprof"
 )
 
 type Prover struct {
@@ -65,18 +63,10 @@ func NewProver(pk []byte, index int64, name, graph string) *Prover {
 // return: root hash of the merkle tree
 //         will also write out the merkle tree
 func (p *Prover) Init() *Commitment {
-	// f, _ := os.Create("prover.cpu")
-	// pprof.StartCPUProfile(f)
-	// defer pprof.StopCPUProfile()
-
 	// build the merkle tree in depth first fashion
 	// root node is 1
 	root := p.generateMerkle()
 	p.commit = root
-
-	// f2, _ := os.Create("prover.mem")
-	// pprof.WriteHeapProfile(f2)
-	// f2.Close()
 
 	commit := &Commitment{
 		Pk:     p.pk,
@@ -102,7 +92,7 @@ func (p *Prover) emptyMerkle(node int64) bool {
 	return found
 }
 
-// Recursive function to generate merkle tree
+// Iterative function to generate merkle tree
 // Should have at most O(lgn) hashes in memory at a time
 // return: hash at node i
 func (p *Prover) generateMerkle() []byte {

@@ -22,5 +22,7 @@ cost of some minor compute during initialization.
 
 ##Directory Structure
 block/          Cryptocurrency block files
+
 pos/            Proof-of-Space implementation
+
 util/           Various utilities used by block and pos

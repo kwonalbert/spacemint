@@ -199,8 +199,6 @@ func (g *Graph) WriteId(node *Node, id int64) {
 	}
 }
 
-// Gets the node, and update the node.
-// Otherwise, create a node
 func (g *Graph) GetNode(id int64) *Node {
 	idx := g.bfsToPost(id)
 	//fmt.Println("read", idx)
@@ -222,6 +220,7 @@ func (g *Graph) subtree(node int64) int64 {
 	return int64((1 << uint64(level)) - 1)
 }
 
+// post-order is better for disk than bfs
 func (g *Graph) bfsToPost(node int64) int64 {
 	if node == 0 {
 		return 0

@@ -154,6 +154,7 @@ func (p *Prover) generateMerkle() []byte {
 	return hashStack[0]
 }
 
+// Open a node in the merkle tree
 // return: hash of node, and the lgN hashes to verify node
 func (p *Prover) Open(node int64) ([]byte, [][]byte) {
 	var hash []byte
@@ -189,7 +190,8 @@ func (p *Prover) Open(node int64) ([]byte, [][]byte) {
 }
 
 // Receives challenges from the verifier to prove PoS
-// return: the hash values of the challenges, and the proof for each
+// return: the hash values of the challenges, the parent hashes,
+//         the proof for each, and the proof for the parents
 func (p *Prover) ProveSpace(challenges []int64) ([][]byte, [][][]byte, [][][]byte, [][][][]byte) {
 	hashes := make([][]byte, len(challenges))
 	proofs := make([][][]byte, len(challenges))

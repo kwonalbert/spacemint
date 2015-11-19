@@ -94,7 +94,7 @@ func (p *Prover) emptyMerkle(node int64) bool {
 
 // Iterative function to generate merkle tree
 // Should have at most O(lgn) hashes in memory at a time
-// return: hash at node i
+// return: the root hash
 func (p *Prover) generateMerkle() []byte {
 	var stack []int64
 	var hashStack [][]byte

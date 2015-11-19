@@ -17,5 +17,10 @@ sophisticated solution like graph database.
 The graphs used in the prototype from PTC76 (Paul, Tarjan and Celoni).
 The graph is recursively generated. Each node is just a hash, and you
 can directly access the node by reading hash at id * size of hash.
-The code is written in a way to minimize the HDD disk movement,
-at the cost of some minor compute during initialization.
+The code is written in a way to minimize the HDD head movement, at the
+cost of some minor compute during initialization.
+
+##Directory Structure
+block/          Cryptocurrency block files
+pos/            Proof-of-Space implementation
+util/           Various utilities used by block and pos

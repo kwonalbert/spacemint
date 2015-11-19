@@ -15,6 +15,7 @@ representation in the file system, and avoid using a more
 sophisticated solution like graph database.
 
 The graphs used in the prototype from PTC76 (Paul, Tarjan and Celoni).
-The graph is recursively generated. Each node is a json encoded file,
-that consits of 1. id, 2. hash, 3. list of parents. The parents are
-the file names that hold the parents for this node.
+The graph is recursively generated. Each node is just a hash, and you
+can directly access the node by reading hash at id * size of hash.
+The code is written in a way to minimize the HDD disk movement,
+at the cost of some minor compute during initialization.

@@ -3,7 +3,7 @@ package pos
 import (
 	"encoding/binary"
 	//"fmt"
-	"github.com/kwonalbert/spacecoin/util"
+	"github.com/kwonalbert/spacemint/util"
 	"golang.org/x/crypto/sha3"
 )
 

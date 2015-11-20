@@ -4,8 +4,8 @@ import (
 	"crypto"
 	"crypto/rand"
 	"encoding/json"
-	"github.com/kwonalbert/spacecoin/pos"
-	"github.com/kwonalbert/spacecoin/util"
+	"github.com/kwonalbert/spacemint/pos"
+	"github.com/kwonalbert/spacemint/util"
 	"golang.org/x/crypto/sha3"
 )
 

@@ -4,7 +4,7 @@ import (
 	sign "crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"github.com/kwonalbert/spacecoin/pos"
+	"github.com/kwonalbert/spacemint/pos"
 	"log"
 	"os"
 	"testing"
@@ -47,10 +47,10 @@ func TestMain(m *testing.M) {
 	prover := pos.NewProver(pk, 4, "../pos/graph")
 	commit := prover.Init()
 	pos := PoS{
-		Commit: *commit,
+		Commit:    *commit,
 		Challenge: []byte{2},
 		Answer: Answer{
-			Size: 4,
+			Size:   4,
 			Hashes: [][]byte{[]byte{3}, []byte{4}},
 			Proofs: nil,
 		},
@@ -61,10 +61,10 @@ func TestMain(m *testing.M) {
 
 	sk, _ := sign.GenerateKey(elliptic.P256(), rand.Reader)
 	oldB = &Block{
-		Id: 0,
-		Hash: Hash{},
+		Id:    0,
+		Hash:  Hash{},
 		Trans: make([]Transaction, 3),
-		Sig: Signature{},
+		Sig:   Signature{},
 	}
 	b = NewBlock(oldB, pos, ts, sk)
 	os.Exit(m.Run())

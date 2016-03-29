@@ -6,8 +6,8 @@ https://eprint.iacr.org/2015/528.pdf (Cryptocurrency)
 https://eprint.iacr.org/2013/796.pdf (Proof-of-space; PoS).
 This README explains some implementation details.
 
-###The proof-of-space part of this is being re-implemented,
-and a version of it is already moved to https://github.com/kwonalbert/pospace.
+*The proof-of-space part of this is being re-implemented,
+and a version of it is already moved to https://github.com/kwonalbert/pospace.*
 
 ##Structure of the graph
 
